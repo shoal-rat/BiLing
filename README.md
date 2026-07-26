@@ -14,13 +14,16 @@ Qwen3 本地模型放进同一条低延迟输入链路：词典负责提出可�
 
 > **本地，完整，开箱即用。** 模型、词库、推理运行时和学习数据均留在本机。
 > 笔灵不需要账号、API Key、联网推理或从零培养词库，也不存在“仅词典模式”。
+> 在线安装器会自动取得仓库内固定版本的模型并校验，无需用户寻找模型。
 
 ### 三分钟开始输入
 
 推荐普通用户从
 [最新 Release](https://github.com/shoal-rat/BiLing/releases/latest)
-下载 `BiLing-1.2.0-macOS-arm64.zip`，解压后右键打开“安装笔灵.command”。
-安装包已经包含 Qwen、Metal 后端和完整词库，不需要 Homebrew 或 Xcode。
+下载 `BiLing-1.2.0-online-installer-macOS-arm64.zip`，解压后右键打开
+“在线安装笔灵.command”。安装包已经包含 App、Metal 后端和完整词库；脚本会
+从仓库的固定 Git LFS 提交下载唯一的 Qwen 文件并验证摘要，不需要 Homebrew、
+Xcode 或 API Key。
 
 开发者也可以从源码安装：
 
@@ -153,8 +156,9 @@ python3 scripts/build_dictionary.py \
 | 运行时 | llama.cpp + Metal |
 | 许可证 | Apache License 2.0 |
 
-模型通过 Git LFS 与源码一同分发，也包含在预构建 Release 中。安装器会拒绝
-缺失、截断或摘要不匹配的模型。推理由独立 LaunchAgent 统一承载，所有输入会话
+模型通过 Git LFS 与源码一同分发。预构建 Release 的在线安装器从固定提交取得
+同一文件；安装器会拒绝缺失、截断或摘要不匹配的模型。推理由独立 LaunchAgent
+统一承载，所有输入会话
 共享同一份权重；引擎和输入法均设置 `RunAtLoad` 与 `KeepAlive`。
 
 连接中断不再永久显示“Qwen 不可用”。客户端会把状态显示为“正在启动或恢复”，
@@ -170,9 +174,10 @@ python3 scripts/build_dictionary.py \
 要求：Apple silicon Mac，macOS 26 或更新版本。
 
 1. 从 [Releases](https://github.com/shoal-rat/BiLing/releases/latest) 下载
-   `BiLing-1.2.0-macOS-arm64.zip`。
-2. 解压，右键“安装笔灵.command”，选择“打开”。
-3. 等待安装器依次显示模型摘要校验、Qwen 排序检查和输入源注册成功。
+   `BiLing-1.2.0-online-installer-macOS-arm64.zip`。
+2. 解压，右键“在线安装笔灵.command”，选择“打开”。
+3. 等待脚本下载固定版本的 Qwen，并依次显示摘要校验、排序检查和输入源注册
+   成功。
 4. 从菜单栏输入法菜单选择 **笔灵**。
 
 当前发布由项目进行 ad-hoc 代码签名，因为构建账户没有 Apple Developer ID
@@ -385,7 +390,10 @@ BiLing/
 └── scripts/
     ├── build_dictionary.py
     ├── install.sh
+    ├── install_online.sh
     ├── install_prebuilt.sh
+    ├── package_online_release.sh
+    ├── package_release.sh
     ├── register.swift
     └── uninstall.sh
 ```

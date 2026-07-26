@@ -9,14 +9,15 @@
 - 修复“中/英”键总是切到笔灵：输入源现在是非拉丁 `smSimpChinese`，
   不再被 macOS 误认为英文侧输入源。
 - 安装器同时验证 CLI XPC 和实际输入法进程的 Qwen 连接。
-- 提供包含模型、Metal 后端、144 万词库与一键安装脚本的 Apple silicon
-  预构建包。
+- 提供包含 App、Metal 后端、144 万词库与一键安装脚本的 Apple silicon
+  预构建包；模型从仓库固定 Git LFS 提交下载并进行强制摘要校验。
 - README 默认中文，并提供完整英文版本、论文式理论说明与双语 SVG 图。
 
 ## 安装
 
-下载 `BiLing-1.2.0-macOS-arm64.zip`，解压后右键“安装笔灵.command”，选择
-“打开”。要求 Apple silicon 与 macOS 26 或更新版本。
+下载 `BiLing-1.2.0-online-installer-macOS-arm64.zip`，解压后右键
+“在线安装笔灵.command”，选择“打开”。要求 Apple silicon、macOS 26 或更新
+版本，以及首次安装时可访问 GitHub；安装后推理完全离线。
 
 本构建使用 ad-hoc 代码签名，未经过 Apple 公证。遇到开发者验证提示时，请在
 “系统设置 → 隐私与安全性”核对来源后选择“仍要打开”；无需关闭 Gatekeeper。
@@ -35,5 +36,6 @@ BiLing 1.2.0 fixes persistent Qwen-unavailable states with login startup,
 launchd keep-alive, periodic health checks, and automatic XPC reconnection. It
 also registers BiLing as a non-Latin `smSimpChinese` source, restoring the
 intended macOS Chinese/English key behavior. The prebuilt Apple-silicon archive
-contains the model, Metal backends, 1.44-million-entry lexicon, and a no-build
-installer.
+contains the app, Metal backends, 1.44-million-entry lexicon, and a no-build
+installer that retrieves and verifies the model from the pinned repository
+commit.

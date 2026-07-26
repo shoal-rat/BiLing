@@ -19,10 +19,12 @@ Type `jilindaxue`. Get **吉林大学**. Press Space. Keep thinking.
 
 ### Install and type
 
-For most users, download `BiLing-1.2.0-macOS-arm64.zip` from the
+For most users, download
+`BiLing-1.2.0-online-installer-macOS-arm64.zip` from the
 [latest release](https://github.com/shoal-rat/BiLing/releases/latest), extract
-it, then Control-click **安装笔灵.command** and choose Open. The prebuilt
-package needs neither Homebrew nor Xcode.
+it, then Control-click **在线安装笔灵.command** and choose Open. The installer
+fetches the one pinned Qwen LFS object and verifies its size and SHA-256; it
+needs neither Homebrew, Xcode, an API key, nor network access after installation.
 
 To build from source:
 
@@ -181,9 +183,11 @@ observed development measurement, not a hardware-independent latency claim.
 ### 5.1 Prebuilt release
 
 The prebuilt release requires macOS 26 on Apple silicon. Download and extract
-`BiLing-1.2.0-macOS-arm64.zip`, then Control-click **安装笔灵.command** and
-choose Open. It contains the app, Qwen model, Metal backends, compiled lexicon,
-and a no-build installer.
+`BiLing-1.2.0-online-installer-macOS-arm64.zip`, then Control-click
+**在线安装笔灵.command** and choose Open. It contains the app, Metal backends,
+compiled lexicon, and a no-build installer. The script downloads the model from
+the repository's pinned Git LFS commit and verifies the exact 396,704,512-byte
+file before installation; inference remains entirely offline.
 
 This release is ad-hoc signed because the build account has no Apple Developer
 ID certificate, so it is not notarized. If macOS displays a developer
@@ -409,7 +413,10 @@ BiLing/
 └── scripts/
     ├── build_dictionary.py
     ├── install.sh
+    ├── install_online.sh
     ├── install_prebuilt.sh
+    ├── package_online_release.sh
+    ├── package_release.sh
     ├── register.swift
     └── uninstall.sh
 ```
