@@ -40,8 +40,8 @@
     <text x="330" y="400" class="muted" font-size="13">Lexicon answers in &lt;5 ms</text>
 
     <rect x="548" y="356" width="222" height="56" rx="12" fill="#FDFAF2" stroke="#DCD5C4"/>
-    <text x="568" y="380" class="verm" font-size="15" font-weight="600">Qwen3-0.6B</text>
-    <text x="568" y="400" class="muted" font-size="13">Async context re-ranking</text>
+    <text x="568" y="380" class="verm" font-size="15" font-weight="600">Sees your context</text>
+    <text x="568" y="400" class="muted" font-size="13">Reads the text before the caret</text>
 
     <rect x="786" y="356" width="222" height="56" rx="12" fill="#FDFAF2" stroke="#DCD5C4"/>
     <text x="806" y="380" class="verm" font-size="15" font-weight="600">Learns you</text>

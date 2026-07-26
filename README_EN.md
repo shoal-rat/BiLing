@@ -86,6 +86,30 @@ If the model process crashes, has not started yet, or was reclaimed under
 memory pressure, the lexicon keeps working — you lose only the
 context-aware part of the ordering, never the ability to type.
 
+### Same pinyin, two different sentences
+
+This is the thing conventional IMEs cannot do: they rank the same pinyin
+the same way no matter what you are replying to. BiLing reads the real
+text before your caret, so the first candidate follows your sentence —
+every row below is measured output from the installed build:
+
+| Text you have half-written | Then you type | First candidate |
+|---|---|---|
+| 他这辈子行医救人，是一位好 | `yisheng` | **医生** (doctor) |
+| 这句话让我受用 | `yisheng` | **一生** (a lifetime) |
+| 我突然 | `xiangqi` | **想起** (recall) |
+| 爷爷最喜欢下 | `xiangqi` | **象棋** (chess) |
+| 我们在化学课上做 | `shiyan` | **实验** (experiment) |
+| 他违背了当初的 | `shiyan` | **誓言** (vow) |
+
+Reproduce it yourself (`--context` stands in for the text already in the
+field):
+
+```bash
+"$HOME/Library/Input Methods/BiLing.app/Contents/Helpers/biling-cli" \
+  --xpc --context "爷爷最喜欢下" xiangqi
+```
+
 The actual candidate panel (native AppKit controls, not a mockup):
 
 ![BiLing's candidate panel, rendered by the real code](Docs/candidate-panel.png)
@@ -108,13 +132,17 @@ in another window.
 ![Trade-offs of the three approaches](Docs/compare.svg)
 
 - Conventional local IMEs are fast and dependable, but they rank purely by
-  frequency. After "我真的受够了" they still have no idea `laji` is now
-  probably 垃圾;
+  frequency and never look at the text already in your field. For the six
+  rows in the table above, they can only ever give three fixed answers;
 - Cloud-AI IMEs understand context, at the cost of streaming every
   keystroke to someone else's server — and degrading offline;
 - BiLing puts the two together on one machine: lexicon speed, model
   judgment. A 0.6B model is plenty for "pick the best of a handful of
   pinyin-matched candidates" — a far easier job than free generation.
+
+For the full scoring formulas, beam-search details, and measured
+latency/memory charts, see **[Docs/THEORY.md](Docs/THEORY.md)**
+(Chinese, with an English abstract).
 
 ## Learning and privacy
 

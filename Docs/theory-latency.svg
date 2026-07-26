@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="420" viewBox="0 0 1100 420" role="img" aria-labelledby="title description">
+  <title id="title">笔灵各阶段实测延迟 · Measured latency by stage</title>
+  <desc id="description">词典引擎 2.8 毫秒；Qwen 重排在上下文未变时 28.5 毫秒，上下文增长时 44.7 毫秒，冷上下文 61.8 毫秒；1.2.0 每键都按冷上下文重算。</desc>
+  <style>
+    .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    .ink { fill: #2A3038; }
+    .muted { fill: #6E6F66; }
+    .verm { fill: #C74A34; }
+  </style>
+  <rect width="1100" height="420" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1099" height="419" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="58" class="sans ink" font-size="22" font-weight="700">一次按键各阶段要多久（实测，Apple M5）</text>
+  <text x="60" y="84" class="sans muted" font-size="13">输入 jilindaxuelajixuexiao · Qwen3-0.6B Q4_K_M · 已安装 XPC 服务 · 10 px ≈ 6 ms</text>
+
+  <!-- axis baseline at x=370; scale: 6 ms per 10 px → 1 ms = 1.6667 px -->
+  <g class="sans">
+    <!-- lexicon -->
+    <text x="350" y="140" text-anchor="end" class="ink" font-size="14" font-weight="600">词典引擎（同步）</text>
+    <rect x="370" y="124" width="5" height="22" rx="2" fill="#4A7A5A"/>
+    <text x="385" y="140" class="mono ink" font-size="13">2.8 ms</text>
+
+    <!-- warm same context -->
+    <text x="350" y="188" text-anchor="end" class="ink" font-size="14" font-weight="600">Qwen 重排 · 上下文未变</text>
+    <rect x="370" y="172" width="48" height="22" rx="2" fill="#41628A"/>
+    <text x="428" y="188" class="mono ink" font-size="13">28.5 ms<tspan class="muted">　组词过程中的常态（KV 命中）</tspan></text>
+
+    <!-- extended context -->
+    <text x="350" y="236" text-anchor="end" class="ink" font-size="14" font-weight="600">Qwen 重排 · 上下文新增一句</text>
+    <rect x="370" y="220" width="75" height="22" rx="2" fill="#41628A"/>
+    <text x="455" y="236" class="mono ink" font-size="13">44.7 ms<tspan class="muted">　只解码新增的后缀</tspan></text>
+
+    <!-- cold context -->
+    <text x="350" y="284" text-anchor="end" class="ink" font-size="14" font-weight="600">Qwen 重排 · 上下文冷启动</text>
+    <rect x="370" y="268" width="103" height="22" rx="2" fill="#41628A" opacity="0.55"/>
+    <text x="483" y="284" class="mono ink" font-size="13">61.8 ms<tspan class="muted">　换输入框后的第一次</tspan></text>
+
+    <!-- old behavior -->
+    <text x="350" y="332" text-anchor="end" class="muted" font-size="14" font-weight="600">对照：1.2.0 的每一次按键</text>
+    <rect x="370" y="316" width="103" height="22" rx="2" fill="#C74A34" opacity="0.8"/>
+    <text x="483" y="332" class="mono ink" font-size="13">≈ 62 ms<tspan class="muted">　每键清空 KV、重算全部上下文 + 标量 softmax</tspan></text>
+  </g>
+
+  <line x1="370" y1="110" x2="370" y2="352" stroke="#DCD5C4"/>
+  <text x="60" y="392" class="sans muted" font-size="13">词典先上屏、模型异步重排，所以打字手感由绿色那行决定；蓝色决定"更聪明的排序"晚多少毫秒到。</text>
+</svg>

@@ -42,11 +42,11 @@
 
     <rect x="750" y="128" width="200" height="168" rx="12" class="panel"/>
     <text x="766" y="158" class="verm" font-size="13" font-weight="700">④ Qwen 重排（异步）</text>
-    <text x="766" y="186" class="ink" font-size="13">P(候选 | 已提交上下文)</text>
-    <text x="766" y="212" class="muted" font-size="12">0.6B 模型在本机为前 16 个</text>
-    <text x="766" y="230" class="muted" font-size="12">候选打上下文分；共享前缀</text>
+    <text x="766" y="186" class="ink" font-size="13">P(候选 | 光标前的文本)</text>
+    <text x="766" y="212" class="muted" font-size="12">直接读你输入框里写到一半</text>
+    <text x="766" y="230" class="muted" font-size="12">的内容当上下文；共享前缀</text>
     <text x="766" y="248" class="muted" font-size="12">一批算完，新按键随时取消</text>
-    <text x="766" y="276" class="indigo" font-size="12" font-weight="600">有上下文时话语权更大</text>
+    <text x="766" y="276" class="indigo" font-size="12" font-weight="600">传统输入法没有这一步</text>
 
     <rect x="980" y="128" width="200" height="168" rx="12" class="panel"/>
     <text x="996" y="158" class="verm" font-size="13" font-weight="700">⑤ 个人先验</text>

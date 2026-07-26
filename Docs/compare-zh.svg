@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="620" viewBox="0 0 1240 620" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="684" viewBox="0 0 1240 684" role="img" aria-labelledby="title description">
   <title id="title">笔灵与传统输入法、云端 AI 输入法的对比</title>
-  <desc id="description">传统本地输入法没有上下文理解；云端 AI 输入法把按键发到服务器；笔灵在本机同时具备词库速度与大模型排序，全程离线。</desc>
+  <desc id="description">传统本地输入法没有上下文理解，也读不到输入框前文；云端 AI 输入法把按键发到服务器；笔灵在本机同时具备词库速度与大模型排序，还会读取光标前的真实文本，全程离线。</desc>
   <style>
     .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
     .ink { fill: #2A3038; }
@@ -10,14 +10,14 @@
     .part { fill: #A8702A; }
     .bad { fill: #A83A2A; }
   </style>
-  <rect width="1240" height="620" fill="#F7F3E9"/>
-  <rect x="0.5" y="0.5" width="1239" height="619" fill="none" stroke="#DCD5C4"/>
+  <rect width="1240" height="684" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1239" height="683" fill="none" stroke="#DCD5C4"/>
 
   <text x="60" y="62" class="sans ink" font-size="26" font-weight="700">为什么不直接用现成的</text>
   <text x="60" y="90" class="sans muted" font-size="15">三类方案各自的取舍（按类别比较，不针对具体产品）</text>
 
   <!-- BiLing column highlight -->
-  <rect x="908" y="118" width="292" height="452" rx="14" fill="#FDFAF2" stroke="#C74A34" stroke-width="2"/>
+  <rect x="908" y="118" width="292" height="516" rx="14" fill="#FDFAF2" stroke="#C74A34" stroke-width="2"/>
 
   <!-- headers -->
   <text x="330" y="152" class="sans ink" font-size="16" font-weight="700">传统本地输入法</text>
@@ -27,10 +27,8 @@
   <text x="930" y="152" class="sans verm" font-size="16" font-weight="700">笔灵</text>
   <text x="930" y="172" class="sans muted" font-size="12">词库 + 本地 0.6B 模型</text>
 
-  <!-- separator under header -->
   <line x1="60" y1="188" x2="1180" y2="188" stroke="#DCD5C4"/>
 
-  <!-- rows -->
   <g class="sans">
     <text x="60" y="226" class="ink" font-size="14" font-weight="600">整句与上下文理解</text>
     <text x="330" y="226" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  只看词频，不懂前文</tspan></text>
@@ -38,35 +36,41 @@
     <text x="930" y="226" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  Qwen 按上文重排</tspan></text>
     <line x1="60" y1="248" x2="1180" y2="248" stroke="#E8E2D2"/>
 
-    <text x="60" y="290" class="ink" font-size="14" font-weight="600">按键去了哪里</text>
-    <text x="330" y="290" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  本地为主，云功能常驻</tspan></text>
-    <text x="630" y="290" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  逐键上传服务器</tspan></text>
-    <text x="930" y="290" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  不出这台 Mac，可验证</tspan></text>
+    <text x="60" y="290" class="ink" font-size="14" font-weight="600">会读输入框里的前文吗</text>
+    <text x="330" y="290" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  前文是什么都一个排法</tspan></text>
+    <text x="630" y="290" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  读了，但读到了云端</tspan></text>
+    <text x="930" y="290" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  光标前文本，只在本机</tspan></text>
     <line x1="60" y1="312" x2="1180" y2="312" stroke="#E8E2D2"/>
 
-    <text x="60" y="354" class="ink" font-size="14" font-weight="600">断网 / 飞行模式</text>
-    <text x="330" y="354" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  可用</tspan></text>
-    <text x="630" y="354" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  AI 能力消失</tspan></text>
-    <text x="930" y="354" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  一切照常</tspan></text>
+    <text x="60" y="354" class="ink" font-size="14" font-weight="600">按键去了哪里</text>
+    <text x="330" y="354" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  本地为主，云功能常驻</tspan></text>
+    <text x="630" y="354" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  逐键上传服务器</tspan></text>
+    <text x="930" y="354" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  不出这台 Mac，可验证</tspan></text>
     <line x1="60" y1="376" x2="1180" y2="376" stroke="#E8E2D2"/>
 
-    <text x="60" y="418" class="ink" font-size="14" font-weight="600">候选延迟</text>
-    <text x="330" y="418" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  毫秒级</tspan></text>
-    <text x="630" y="418" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  受网络往返影响</tspan></text>
-    <text x="930" y="418" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  词典 &lt;5 ms，模型异步</tspan></text>
+    <text x="60" y="418" class="ink" font-size="14" font-weight="600">断网 / 飞行模式</text>
+    <text x="330" y="418" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  可用</tspan></text>
+    <text x="630" y="418" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  AI 能力消失</tspan></text>
+    <text x="930" y="418" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  一切照常</tspan></text>
     <line x1="60" y1="440" x2="1180" y2="440" stroke="#E8E2D2"/>
 
-    <text x="60" y="482" class="ink" font-size="14" font-weight="600">个性化</text>
-    <text x="330" y="482" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  本地词频</tspan></text>
-    <text x="630" y="482" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  画像存在服务端</tspan></text>
-    <text x="930" y="482" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  本机加密，可查可删</tspan></text>
+    <text x="60" y="482" class="ink" font-size="14" font-weight="600">候选延迟</text>
+    <text x="330" y="482" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  毫秒级</tspan></text>
+    <text x="630" y="482" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  受网络往返影响</tspan></text>
+    <text x="930" y="482" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  词典 &lt;5 ms，模型异步</tspan></text>
     <line x1="60" y1="504" x2="1180" y2="504" stroke="#E8E2D2"/>
 
-    <text x="60" y="546" class="ink" font-size="14" font-weight="600">模型进程挂了会怎样</text>
-    <text x="330" y="546" font-size="14"><tspan class="muted">—</tspan></text>
-    <text x="630" y="546" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  等待或降级不透明</tspan></text>
-    <text x="930" y="546" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  词典照常打字，自动重连</tspan></text>
+    <text x="60" y="546" class="ink" font-size="14" font-weight="600">个性化</text>
+    <text x="330" y="546" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  本地词频</tspan></text>
+    <text x="630" y="546" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  画像存在服务端</tspan></text>
+    <text x="930" y="546" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  本机加密，可查可删</tspan></text>
+    <line x1="60" y1="568" x2="1180" y2="568" stroke="#E8E2D2"/>
+
+    <text x="60" y="610" class="ink" font-size="14" font-weight="600">模型进程挂了会怎样</text>
+    <text x="330" y="610" font-size="14"><tspan class="muted">—</tspan></text>
+    <text x="630" y="610" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  等待或降级不透明</tspan></text>
+    <text x="930" y="610" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  词典照常打字，自动重连</tspan></text>
   </g>
 
-  <text x="60" y="600" class="sans muted" font-size="13">笔灵的立场：词库负责“永远有结果”，模型负责“结果更聪明”，两者都不需要网络。</text>
+  <text x="60" y="664" class="sans muted" font-size="13">笔灵的立场：词库负责“永远有结果”，模型负责“结果更聪明”，上下文只在本机被读取，两者都不需要网络。</text>
 </svg>

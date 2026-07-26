@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="360" viewBox="0 0 1100 360" role="img" aria-labelledby="title description">
+  <title id="title">笔灵守护进程的内存状态 · Daemon memory by state</title>
+  <desc id="description">打字时模型驻留约 636 MB（其中权重为可回收的 mmap 干净页）；停止使用 10 分钟后自动卸载，进程回落到数 MB；两个进程都没有定时器唤醒。</desc>
+  <style>
+    .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    .ink { fill: #2A3038; }
+    .muted { fill: #6E6F66; }
+    .verm { fill: #C74A34; }
+  </style>
+  <rect width="1100" height="360" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1099" height="359" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="58" class="sans ink" font-size="22" font-weight="700">常驻后台的代价（实测 RSS）</text>
+  <text x="60" y="84" class="sans muted" font-size="13">biling-engined 守护进程 · 1 px ≈ 1 MB</text>
+
+  <g class="sans">
+    <text x="350" y="146" text-anchor="end" class="ink" font-size="14" font-weight="600">正在打字（模型已加载）</text>
+    <rect x="370" y="130" width="636" height="24" rx="2" fill="#41628A"/>
+    <text x="380" y="147" class="mono" font-size="13" fill="#FDFAF2">636 MB · 其中约 400 MB 是 mmap 权重的干净页，内存紧张时系统可直接回收</text>
+
+    <text x="350" y="202" text-anchor="end" class="ink" font-size="14" font-weight="600">空闲 10 分钟后（自动卸载）</text>
+    <rect x="370" y="186" width="8" height="24" rx="2" fill="#4A7A5A"/>
+    <text x="390" y="203" class="mono ink" font-size="13">≈ 6 MB<tspan class="muted">　下一次按键经 mmap 秒级恢复，期间词典照常出词</tspan></text>
+
+    <text x="350" y="258" text-anchor="end" class="ink" font-size="14" font-weight="600">输入法进程（始终）</text>
+    <rect x="370" y="242" width="30" height="24" rx="2" fill="#4A7A5A"/>
+    <text x="410" y="259" class="mono ink" font-size="13">≈ 30 MB<tspan class="muted">　含 59 MB 词库的按需页</tspan></text>
+  </g>
+
+  <line x1="370" y1="116" x2="370" y2="280" stroke="#DCD5C4"/>
+  <text x="60" y="326" class="sans muted" font-size="13">空闲时没有任何定时器：不做周期健康检查，不轮询状态——两个进程都只在你打字或打开菜单时醒来。</text>
+</svg>

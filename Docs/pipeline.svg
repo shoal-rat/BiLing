@@ -41,11 +41,11 @@
 
     <rect x="750" y="128" width="200" height="168" rx="12" class="panel"/>
     <text x="766" y="158" class="verm" font-size="13" font-weight="700">④ Qwen re-rank (async)</text>
-    <text x="766" y="186" class="ink" font-size="13">P(candidate | context)</text>
-    <text x="766" y="212" class="muted" font-size="12">The 0.6B model scores the top 16</text>
-    <text x="766" y="230" class="muted" font-size="12">in one shared-prefix batch;</text>
-    <text x="766" y="248" class="muted" font-size="12">a new keystroke cancels it</text>
-    <text x="766" y="276" class="indigo" font-size="12" font-weight="600">Its vote grows with context</text>
+    <text x="766" y="186" class="ink" font-size="13">P(candidate | text before caret)</text>
+    <text x="766" y="212" class="muted" font-size="12">Context is the half-written text</text>
+    <text x="766" y="230" class="muted" font-size="12">in your field; one shared-prefix</text>
+    <text x="766" y="248" class="muted" font-size="12">batch, cancelled per keystroke</text>
+    <text x="766" y="276" class="indigo" font-size="12" font-weight="600">No conventional IME has this</text>
 
     <rect x="980" y="128" width="200" height="168" rx="12" class="panel"/>
     <text x="996" y="158" class="verm" font-size="13" font-weight="700">⑤ Personal prior</text>
