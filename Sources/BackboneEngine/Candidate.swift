@@ -32,31 +32,44 @@ public struct Candidate: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
-public struct CandidatePage: Sendable {
-    public let items: [Candidate]
-    public let page: Int
-    public let pageSize: Int
-    public let totalCount: Int
-
-    public var hasPrevious: Bool { page > 0 }
-    public var hasNext: Bool { (page + 1) * pageSize < totalCount }
-}
-
 public struct EngineResult: Sendable {
     public let input: String
     public let mode: PinyinMode
     public let candidates: [Candidate]
     public let generation: UInt64
+}
 
-    public func page(_ index: Int, size: Int = 9) -> CandidatePage {
-        let safePage = max(0, index)
-        let start = safePage * size
-        let slice: [Candidate]
-        if start < candidates.count {
-            slice = Array(candidates[start..<min(start + size, candidates.count)])
-        } else {
-            slice = []
+/// Merges Qwen's language-model scores into the deterministic candidate list.
+/// The input method and the diagnostic CLI share this exact function, so what
+/// `biling-cli` prints is the ranking a user would see while typing.
+public enum CandidateBlender {
+    public static func blend(
+        _ candidates: [Candidate],
+        orderedCandidates: [String],
+        scores: [String: Double],
+        hasContext: Bool
+    ) -> [Candidate] {
+        // With committed context the model has real evidence and gets a strong
+        // vote. Cold, its preference is mostly style (辣鸡 over 垃圾), so corpus
+        // frequency keeps the upper hand.
+        let languageModelWeight = hasContext ? 0.42 : 0.25
+        var byText = Dictionary(
+            candidates.map { ($0.text, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var rescored: [Candidate] = []
+        for text in orderedCandidates {
+            guard var candidate = byText.removeValue(forKey: text) else { continue }
+            candidate.score += (scores[text] ?? 0) * languageModelWeight
+            if candidate.source == .learned {
+                candidate.score += 4
+            } else if candidate.source == .system {
+                candidate.score += 1
+            }
+            rescored.append(candidate)
         }
-        return CandidatePage(items: slice, page: safePage, pageSize: size, totalCount: candidates.count)
+        rescored.sort { $0.score > $1.score }
+        rescored.append(contentsOf: candidates.filter { byText[$0.text] != nil })
+        return rescored
     }
 }

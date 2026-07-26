@@ -22,6 +22,9 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
     private var page = 0
     private var selectedInPage = 0
     private var committedContext = ""
+    private var documentContext = ""
+    private var fetchedContextThisComposition = false
+    private var activeContext = ""
     private var llmLatency: Double?
     private var engineFailure: String?
     private let pageSize = 9
@@ -29,6 +32,19 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
     override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
         super.init(server: server, delegate: delegate, client: inputClient)
         Self.logger.notice("Created an InputMethodKit client session")
+    }
+
+    /// Apple's Simplified Chinese pinyin input mode.
+    private static let applePinyinSourceID = "com.apple.inputmethod.SCIM.ITABC"
+
+    override func activateServer(_ sender: Any!) {
+        super.activateServer(sender)
+        // In Low Power Mode, hand the session to Apple's pinyin instead of
+        // burning battery on model inference. If that source is not enabled
+        // on this machine, BiLing stays active and skips the model instead.
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            _ = InputSourceRegistration.select(identifier: Self.applePinyinSourceID)
+        }
     }
 
     override func inputText(
@@ -39,6 +55,13 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
     ) -> Bool {
         guard sender is IMKTextInput else {
             Self.logger.error("Rejected an invalid InputMethodKit client")
+            return false
+        }
+
+        if ProcessInfo.processInfo.isLowPowerModeEnabled, rawInput.isEmpty,
+           InputSourceRegistration.select(identifier: Self.applePinyinSourceID) {
+            // Apple pinyin takes over from the next event; let the client
+            // handle this one so no keystroke is swallowed.
             return false
         }
 
@@ -130,6 +153,7 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
     }
 
     override func menu() -> NSMenu! {
+        runtime.llm.refreshStatus()
         let menu = NSMenu(title: "笔灵")
         let settings = NSMenuItem(title: "笔灵设置…", action: #selector(openPreferences), keyEquivalent: ",")
         settings.target = self
@@ -158,20 +182,38 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         llmLatency = nil
         engineFailure = nil
 
+        // Read the text already sitting before the caret once per composition.
+        // It is truer context than our own session history (it survives app
+        // switches and covers text typed by other means), and fetching it only
+        // at composition start keeps the daemon's KV prefix stable per word.
+        if !fetchedContextThisComposition {
+            fetchedContextThisComposition = true
+            documentContext = Self.documentContext(from: sender as? IMKTextInput)
+        }
+        activeContext = documentContext.isEmpty ? committedContext : documentContext
+
         let result = runtime.engine.candidates(
             for: rawInput,
-            context: committedContext,
+            context: activeContext,
             generation: generation
         )
         candidates = result.candidates
         updateMarkedText(sender)
         showPanel(sender)
 
+        // Fallback for Low Power Mode when Apple pinyin was not available to
+        // switch to: stay usable on the lexicon alone, never call the model.
+        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else {
+            engineFailure = "低电量模式：已暂停 Qwen 排序，词典候选不受影响"
+            showPanel(sender)
+            return
+        }
+
         let request = RankRequest(
             clientID: clientID,
             generation: generation,
             input: rawInput,
-            committedContext: String(committedContext.suffix(2_048)),
+            committedContext: activeContext,
             candidates: candidates.prefix(40).map(\.text)
         )
         runtime.llm.rank(request) { [weak self] result in
@@ -184,16 +226,9 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
                     self.showPanel(self.client())
                 case .failure(let error):
                     guard request.generation == self.generation else { return }
+                    // The deterministic candidate list is already on screen and
+                    // stays fully usable; the panel only flips its Qwen badge.
                     self.engineFailure = error.localizedDescription
-                    self.candidates = [
-                        Candidate(
-                            text: self.rawInput,
-                            pinyin: self.rawInput,
-                            source: .literal,
-                            consumed: self.rawInput.count,
-                            score: 0
-                        )
-                    ]
                     self.showPanel(self.client())
                 }
             }
@@ -201,23 +236,26 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
     }
 
     private func apply(_ reply: RankReply) {
-        var byText = Dictionary(uniqueKeysWithValues: candidates.map { ($0.text, $0) })
-        var rescored: [Candidate] = []
-        for text in reply.orderedCandidates {
-            guard var candidate = byText.removeValue(forKey: text) else { continue }
-            candidate.score += (reply.scores[text] ?? 0) * 0.42
-            if candidate.source == .learned {
-                candidate.score += 4
-            } else if candidate.source == .system {
-                candidate.score += 1
-            }
-            rescored.append(candidate)
-        }
-        rescored.sort { $0.score > $1.score }
-        rescored.append(contentsOf: candidates.filter { byText[$0.text] != nil })
-        candidates = rescored
+        candidates = CandidateBlender.blend(
+            candidates,
+            orderedCandidates: reply.orderedCandidates,
+            scores: reply.scores,
+            hasContext: !activeContext.isEmpty
+        )
         llmLatency = reply.latencyMilliseconds
-        runtime.llm.refreshStatus()
+        runtime.llm.noteRankSuccess(model: reply.modelDescription)
+    }
+
+    /// Up to ~600 UTF-16 units of document text before the caret, or empty
+    /// when the client cannot provide it (Terminal, some Electron apps).
+    private static func documentContext(from client: IMKTextInput?) -> String {
+        guard let client else { return "" }
+        let selection = client.selectedRange()
+        guard selection.location != NSNotFound, selection.location > 0 else { return "" }
+        let length = min(selection.location, 600)
+        let range = NSRange(location: selection.location - length, length: length)
+        guard let text = client.attributedSubstring(from: range)?.string else { return "" }
+        return text
     }
 
     private func updateMarkedText(_ sender: Any!) {
@@ -298,14 +336,23 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
             runtime.engine.recordSelection(input: rawInput, candidate: candidate, shown: candidates, index: index)
         }
         insert(value, sender: sender)
-        committedContext = String((committedContext + value).suffix(2_048))
+        appendToContext(value)
         resetState()
     }
 
     private func commitRaw(_ sender: Any!) {
         insert(rawInput, sender: sender)
-        committedContext = String((committedContext + rawInput).suffix(2_048))
+        appendToContext(rawInput)
         resetState()
+    }
+
+    private func appendToContext(_ text: String) {
+        committedContext += text
+        // Trim with hysteresis: a hard per-commit suffix would shift the window
+        // on every commit and defeat the daemon's KV prefix cache.
+        if committedContext.count > 3_072 {
+            committedContext = String(committedContext.suffix(1_536))
+        }
     }
 
     private func applyAutoSpacing(_ text: String) -> String {
@@ -337,7 +384,7 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
                   ";": "；",
               ][text] else { return false }
         insert(punctuation, sender: sender)
-        committedContext = String((committedContext + punctuation).suffix(2_048))
+        appendToContext(punctuation)
         return true
     }
 
@@ -366,6 +413,8 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         candidates = []
         page = 0
         selectedInPage = 0
+        documentContext = ""
+        fetchedContextThisComposition = false
         panel.dismiss()
     }
 }

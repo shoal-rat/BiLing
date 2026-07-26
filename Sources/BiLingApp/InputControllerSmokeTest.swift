@@ -36,11 +36,11 @@ enum InputControllerSmokeTest {
                 dictionary: .bundled(),
                 learningStore: MemoryLearningStore()
             )
-            let candidates = engine.candidates(for: "jilindaxue").candidates
-            guard candidates.first?.text == "吉林大学" else {
+            let candidates = engine.candidates(for: "jilindaxuelajixuexiao").candidates
+            guard candidates.first?.text == "吉林大学垃圾学校" else {
                 return Result(
                     succeeded: false,
-                    message: "The bundled lexicon did not rank 吉林大学 first."
+                    message: "The sentence composer did not rank 吉林大学垃圾学校 first."
                 )
             }
         } catch {
@@ -106,10 +106,22 @@ enum InputControllerSmokeTest {
     }
 
     private static let sampleCandidates = [
-        Candidate(text: "吉林大学", pinyin: "jilin daxue", source: .system, consumed: 11, score: 8),
-        Candidate(text: "吉林大雪", pinyin: "jilin daxue", source: .sentence, consumed: 11, score: 7),
-        Candidate(text: "吉林", pinyin: "jilin", source: .system, consumed: 5, score: 6),
-        Candidate(text: "记录", pinyin: "jilu", source: .system, consumed: 4, score: 5),
-        Candidate(text: "距离", pinyin: "juli", source: .system, consumed: 4, score: 4),
+        Candidate(
+            text: "吉林大学垃圾学校",
+            pinyin: "ji lin da xue la ji xue xiao",
+            source: .sentence,
+            consumed: 21,
+            score: 8
+        ),
+        Candidate(
+            text: "吉林大学辣鸡学校",
+            pinyin: "ji lin da xue la ji xue xiao",
+            source: .sentence,
+            consumed: 21,
+            score: 7
+        ),
+        Candidate(text: "吉林大学", pinyin: "ji lin da xue", source: .system, consumed: 11, score: 6),
+        Candidate(text: "垃圾", pinyin: "la ji", source: .system, consumed: 4, score: 5),
+        Candidate(text: "学校", pinyin: "xue xiao", source: .system, consumed: 7, score: 4),
     ]
 }

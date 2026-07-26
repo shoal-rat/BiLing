@@ -4,7 +4,7 @@ import IPCProtocol
 import LLMRanker
 
 func usage() -> Never {
-    print("Usage: biling-cli [--xpc] [--model path] [--context text] PINYIN")
+    print("Usage: biling-cli [--xpc | --engine-only] [--model path] [--context text] PINYIN")
     exit(64)
 }
 
@@ -13,11 +13,14 @@ var modelURL = ModelLocator.bundledModelURL()
 var context = ""
 var pinyin: String?
 var useXPC = false
+var engineOnly = false
 while !arguments.isEmpty {
     let item = arguments.removeFirst()
     switch item {
     case "--xpc":
         useXPC = true
+    case "--engine-only":
+        engineOnly = true
     case "--model":
         guard !arguments.isEmpty else { usage() }
         modelURL = URL(fileURLWithPath: arguments.removeFirst())
@@ -35,7 +38,21 @@ do {
         dictionary: .bundled(),
         learningStore: MemoryLearningStore()
     )
+    let clock = ContinuousClock()
+    let engineStart = clock.now
     let result = engine.candidates(for: pinyin, context: context, generation: 1)
+    let engineElapsed = engineStart.duration(to: clock.now)
+    let engineMilliseconds = Double(engineElapsed.components.seconds) * 1_000
+        + Double(engineElapsed.components.attoseconds) / 1e15
+
+    if engineOnly {
+        print("笔灵 · 词典引擎 · \(String(format: "%.1f", engineMilliseconds)) ms")
+        for (index, candidate) in result.candidates.prefix(12).enumerated() {
+            print("\(index + 1). \(candidate.text)\t\(candidate.source.rawValue)\t\(candidate.pinyin)")
+        }
+        exit(0)
+    }
+
     let request = RankRequest(
         clientID: UUID(),
         generation: 1,
@@ -71,10 +88,18 @@ do {
     if let error = ranked.error {
         throw RankerError.scoreFailed(error)
     }
+    // Blend with the same function the input method uses, so this output is
+    // the ranking a user would actually see.
+    let blended = CandidateBlender.blend(
+        result.candidates,
+        orderedCandidates: ranked.orderedCandidates,
+        scores: ranked.scores,
+        hasContext: !context.isEmpty
+    )
     print("笔灵 · \(ranked.modelDescription) · \(String(format: "%.1f", ranked.latencyMilliseconds)) ms")
-    for (index, text) in ranked.orderedCandidates.prefix(12).enumerated() {
-        let backbone = result.candidates.first(where: { $0.text == text })
-        print("\(index + 1). \(text)\tLM \(String(format: "%.3f", ranked.scores[text, default: 0]))\t\(backbone?.pinyin ?? "")")
+    for (index, candidate) in blended.prefix(12).enumerated() {
+        let lm = ranked.scores[candidate.text].map { String(format: "%.3f", $0) } ?? "—"
+        print("\(index + 1). \(candidate.text)\tLM \(lm)\t\(candidate.pinyin)")
     }
 } catch {
     FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))

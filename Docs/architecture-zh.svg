@@ -1,85 +1,86 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="690" viewBox="0 0 1240 690" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="640" viewBox="0 0 1240 640" role="img" aria-labelledby="title description">
   <title id="title">笔灵系统架构</title>
-  <desc id="description">InputMethodKit 按键先经过确定性拼音格与索引词库，再由 Qwen 通过经过校验的本地 XPC 连接重新排序。</desc>
-  <defs>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L9,3 z" fill="#6d63d8"/>
-    </marker>
-    <style>
-      .title{font:700 27px -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#17182b}
-      .label{font:650 18px -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#23243b}
-      .body{font:450 14px -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#595b72}
-      .small{font:600 12px -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#6d63d8}
-      .box{fill:#fff;stroke:#d8d9e8;stroke-width:1.5}
-      .flow{fill:none;stroke:#6d63d8;stroke-width:2.3;marker-end:url(#arrow)}
-    </style>
-  </defs>
-  <rect width="1240" height="690" rx="28" fill="#f7f7fb"/>
-  <text x="52" y="58" class="title">笔灵：macOS 原生输入链路中的受约束解码</text>
-  <text x="52" y="87" class="body">每次按键都先得到确定性响应；每个非字面候选都提交给强制启用的本地 Qwen 排序器。</text>
+  <desc id="description">输入法进程内含事件路由、拼音切分、词典引擎与加密用户词库；模型守护进程持有 Qwen，经带代次校验的 XPC 异步重排；两者都由 launchd 管理。</desc>
+  <style>
+    .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    .ink { fill: #2A3038; }
+    .muted { fill: #6E6F66; }
+    .verm { fill: #C74A34; }
+    .indigo { fill: #41628A; }
+    .panel { fill: #FDFAF2; stroke: #DCD5C4; }
+    .cell { fill: #F7F3E9; stroke: #DCD5C4; }
+  </style>
+  <rect width="1240" height="640" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1239" height="639" fill="none" stroke="#DCD5C4"/>
 
-  <rect x="52" y="130" width="232" height="126" rx="18" class="box"/>
-  <circle cx="87" cy="166" r="17" fill="#6657eb"/>
-  <text x="80" y="172" font-family="-apple-system,sans-serif" font-size="18" font-weight="700" fill="#fff">1</text>
-  <text x="116" y="171" class="label">InputMethodKit</text>
-  <text x="76" y="205" class="body">按键码与修饰键</text>
-  <text x="76" y="228" class="body">组合文本与提交</text>
+  <text x="72" y="66" class="sans ink" font-size="26" font-weight="700">两个进程，一条低延迟输入链路</text>
+  <text x="72" y="94" class="sans muted" font-size="15">词典同步答题，模型异步加分；模型进程崩溃或休眠时，打字不受影响</text>
 
-  <rect x="352" y="130" width="246" height="126" rx="18" class="box"/>
-  <circle cx="387" cy="166" r="17" fill="#6657eb"/>
-  <text x="380" y="172" font-family="-apple-system,sans-serif" font-size="18" font-weight="700" fill="#fff">2</text>
-  <text x="416" y="171" class="label">拼音有向格</text>
-  <text x="376" y="205" class="body">保留所有合法音节切分</text>
-  <text x="376" y="228" class="body">始终保留字面恢复路径</text>
+  <!-- client app -->
+  <rect x="72" y="128" width="180" height="96" rx="12" class="panel"/>
+  <text x="162" y="170" text-anchor="middle" class="sans ink" font-size="16" font-weight="600">任意 App</text>
+  <text x="162" y="194" text-anchor="middle" class="sans muted" font-size="13">Safari · 微信 · VS Code</text>
 
-  <rect x="666" y="130" width="250" height="126" rx="18" class="box"/>
-  <circle cx="701" cy="166" r="17" fill="#6657eb"/>
-  <text x="694" y="172" font-family="-apple-system,sans-serif" font-size="18" font-weight="700" fill="#fff">3</text>
-  <text x="730" y="171" class="label">索引词库</text>
-  <text x="690" y="205" class="body">1,440,094 条带权词汇</text>
-  <text x="690" y="228" class="body">精确词与有界句子束</text>
+  <!-- IME process -->
+  <rect x="72" y="264" width="520" height="304" rx="14" class="panel"/>
+  <text x="96" y="300" class="sans ink" font-size="17" font-weight="700">BiLing.app<tspan class="muted" font-size="13">　InputMethodKit 输入法进程</tspan></text>
 
-  <rect x="984" y="130" width="204" height="126" rx="18" class="box"/>
-  <circle cx="1019" cy="166" r="17" fill="#6657eb"/>
-  <text x="1012" y="172" font-family="-apple-system,sans-serif" font-size="18" font-weight="700" fill="#fff">4</text>
-  <text x="1048" y="171" class="label">候选界面</text>
-  <text x="1008" y="205" class="body">原生可访问文本控件</text>
-  <text x="1008" y="228" class="body">选择 · 翻页 · 状态</text>
+  <rect x="96" y="320" width="222" height="64" rx="10" class="cell"/>
+  <text x="110" y="346" class="sans ink" font-size="14" font-weight="600">按键路由</text>
+  <text x="110" y="366" class="sans muted" font-size="12">数字选词 · 翻页 · Return 回退</text>
 
-  <path d="M284 193 H344" class="flow"/>
-  <path d="M598 193 H658" class="flow"/>
-  <path d="M916 193 H976" class="flow"/>
+  <rect x="342" y="320" width="222" height="64" rx="10" class="cell"/>
+  <text x="356" y="346" class="sans ink" font-size="14" font-weight="600">拼音切分格</text>
+  <text x="356" y="366" class="sans muted" font-size="12">保留 xian / xi'an 全部歧义</text>
 
-  <rect x="353" y="332" width="564" height="253" rx="24" fill="#eeecff" stroke="#bdb7f3" stroke-width="1.5"/>
-  <text x="381" y="374" class="small">同一用户 · 代码签名与路径校验 XPC</text>
-  <rect x="382" y="402" width="216" height="136" rx="17" class="box"/>
-  <text x="408" y="439" class="label">biling-engined</text>
-  <text x="408" y="470" class="body">全部客户端共享一个模型</text>
-  <text x="408" y="495" class="body">代次感知取消与自动恢复</text>
-  <rect x="668" y="402" width="220" height="136" rx="17" class="box"/>
-  <text x="694" y="439" class="label">Qwen3-0.6B</text>
-  <text x="694" y="470" class="body">Q4_K_M · Metal · llama.cpp</text>
-  <text x="694" y="495" class="body">上下文候选评分</text>
-  <path d="M598 470 H660" class="flow"/>
-  <path d="M791 256 V300 Q791 318 773 318 H635 V394" class="flow"/>
-  <path d="M888 470 H940 Q958 470 958 452 V288 Q958 270 976 270 H1086 V264" class="flow"/>
+  <rect x="96" y="400" width="222" height="64" rx="10" class="cell"/>
+  <text x="110" y="426" class="sans ink" font-size="14" font-weight="600">词典引擎 · 144 万词</text>
+  <text x="110" y="446" class="sans muted" font-size="12">精确词 + 句子束搜索，&lt;5 ms</text>
 
-  <rect x="52" y="332" width="232" height="253" rx="22" class="box"/>
-  <text x="78" y="374" class="small">个人先验</text>
-  <text x="78" y="411" class="label">加密本地学习</text>
-  <text x="78" y="447" class="body">AES-GCM SQLite</text>
-  <text x="78" y="472" class="body">Keychain 保存密钥</text>
-  <text x="78" y="497" class="body">时钟衰减与跳过惩罚</text>
-  <text x="78" y="522" class="body">安全输入学习保护</text>
-  <path d="M284 458 H320 Q338 458 338 440 V275 Q338 257 352 237" class="flow"/>
+  <rect x="342" y="400" width="222" height="64" rx="10" class="cell"/>
+  <text x="356" y="426" class="sans ink" font-size="14" font-weight="600">个人词库（加密）</text>
+  <text x="356" y="446" class="sans muted" font-size="12">AES-GCM · 密钥在 Keychain</text>
 
-  <line x1="52" y1="624" x2="1188" y2="624" stroke="#dcdeea"/>
-  <circle cx="65" cy="654" r="5" fill="#38b86e"/>
-  <text x="80" y="659" class="body">没有网络路径</text>
-  <circle cx="250" cy="654" r="5" fill="#38b86e"/>
-  <text x="265" y="659" class="body">模型与词库完整内置</text>
-  <circle cx="500" cy="654" r="5" fill="#38b86e"/>
-  <text x="515" y="659" class="body">按客户端 ID 与代次拒绝过期响应</text>
-  <circle cx="860" cy="654" r="5" fill="#38b86e"/>
-  <text x="875" y="659" class="body">字面输入始终可恢复</text>
+  <rect x="96" y="480" width="468" height="64" rx="10" class="cell"/>
+  <text x="110" y="506" class="sans ink" font-size="14" font-weight="600">候选窗（原生 NSPanel）</text>
+  <text x="110" y="526" class="sans muted" font-size="12">词典结果立刻显示；Qwen 结果到达后原位重排，过期代次直接丢弃</text>
+
+  <!-- engine daemon -->
+  <rect x="648" y="264" width="520" height="304" rx="14" class="panel"/>
+  <text x="672" y="300" class="sans ink" font-size="17" font-weight="700">biling-engined<tspan class="muted" font-size="13">　模型守护进程（launchd）</tspan></text>
+
+  <rect x="672" y="320" width="468" height="64" rx="10" class="cell"/>
+  <text x="686" y="346" class="sans ink" font-size="14" font-weight="600">Qwen3-0.6B-Base · Q4_K_M · 373 MB</text>
+  <text x="686" y="366" class="sans muted" font-size="12">llama.cpp + Metal · 共享前缀批量打分 · Accelerate 向量化 softmax</text>
+
+  <rect x="672" y="400" width="222" height="64" rx="10" class="cell"/>
+  <text x="686" y="426" class="sans ink" font-size="14" font-weight="600">KV 前缀缓存</text>
+  <text x="686" y="446" class="sans muted" font-size="12">上下文只解码新增部分</text>
+
+  <rect x="918" y="400" width="222" height="64" rx="10" class="cell"/>
+  <text x="932" y="426" class="sans ink" font-size="14" font-weight="600">空闲自动释放</text>
+  <text x="932" y="446" class="sans muted" font-size="12">10 分钟不用即卸载模型</text>
+
+  <rect x="672" y="480" width="468" height="64" rx="10" class="cell"/>
+  <text x="686" y="506" class="sans ink" font-size="14" font-weight="600">连接校验</text>
+  <text x="686" y="526" class="sans muted" font-size="12">仅接受同用户、已知路径且代码签名有效的进程</text>
+
+  <!-- arrows -->
+  <g stroke="#6E6F66" stroke-width="2" fill="none">
+    <path d="M162 224 L162 264"/>
+    <path d="M592 380 C620 380 620 380 648 380" stroke-dasharray="6 5"/>
+    <path d="M648 430 C620 430 620 430 592 430" stroke-dasharray="6 5"/>
+  </g>
+  <g fill="#6E6F66">
+    <path d="M162 264 l-5 -9 h10 z"/>
+    <path d="M648 380 l-9 -5 v10 z"/>
+    <path d="M592 430 l9 -5 v10 z"/>
+  </g>
+  <text x="167" y="248" class="sans muted" font-size="12">按键 / 上屏</text>
+  <text x="620" y="366" text-anchor="middle" class="sans indigo" font-size="12">XPC 请求</text>
+  <text x="620" y="452" text-anchor="middle" class="sans indigo" font-size="12">异步分数</text>
+
+  <!-- footer -->
+  <text x="72" y="608" class="sans muted" font-size="13"><tspan class="verm" font-weight="600">同步路径</tspan> 按键 → 候选 &lt;5 ms，永不等待模型　　<tspan class="verm" font-weight="600">异步路径</tspan> 带代次标记，新按键即取消旧请求　　<tspan class="verm" font-weight="600">全链路</tspan> 无网络权限</text>
 </svg>

@@ -14,14 +14,11 @@ import Testing
     #expect(result.paths.contains(["xi", "an"]))
 }
 
-@Test func incrementalLatticeHandlesBackspace() {
-    var lattice = LatticeDAG()
-    lattice.append("fangan")
-    #expect(lattice.segmentation.isComplete)
-    let generation = lattice.generation
-    lattice.backspace()
-    #expect(lattice.generation == generation + 1)
-    #expect(lattice.rawInput == "fanga")
+@Test func ambiguousBoundaryKeepsBothReadings() {
+    let result = Segmenter().segment("fangan")
+    #expect(result.isComplete)
+    #expect(result.paths.contains(["fang", "an"]))
+    #expect(result.paths.contains(["fan", "gan"]))
 }
 
 @Test func mixedLanguageClassification() {

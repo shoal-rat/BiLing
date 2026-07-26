@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="560" viewBox="0 0 1240 560" role="img" aria-labelledby="title description">
+  <title id="title">笔灵如何找到好词</title>
+  <desc id="description">按键先进入拼音切分格，词典引擎在几毫秒内给出完整候选，Qwen 结合上下文异步重排，个人选择先验最后加权，得到 吉林大学垃圾学校 这样的整句候选。</desc>
+  <style>
+    .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    .ink { fill: #2A3038; }
+    .muted { fill: #6E6F66; }
+    .verm { fill: #C74A34; }
+    .indigo { fill: #41628A; }
+    .panel { fill: #FDFAF2; stroke: #DCD5C4; }
+  </style>
+  <rect width="1240" height="560" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1239" height="559" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="62" class="sans ink" font-size="26" font-weight="700">一次按键之后发生了什么</text>
+  <text x="60" y="90" class="sans muted" font-size="15">左边三步是同步的，永远先出结果；第四步是异步的，到了就把更懂上下文的排序换上去</text>
+
+  <!-- stage cards -->
+  <g class="sans">
+    <rect x="60" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="76" y="158" class="verm" font-size="13" font-weight="700">① 按键缓冲</text>
+    <text x="76" y="186" class="mono indigo" font-size="14">jilindaxue</text>
+    <text x="76" y="206" class="mono indigo" font-size="14">lajixuexiao</text>
+    <text x="76" y="238" class="muted" font-size="12">逐键增量，退格、撇号</text>
+    <text x="76" y="256" class="muted" font-size="12">与数字选词都在这里路由</text>
+
+    <rect x="290" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="306" y="158" class="verm" font-size="13" font-weight="700">② 拼音切分格</text>
+    <text x="306" y="186" class="mono ink" font-size="13">ji lin da xue</text>
+    <text x="306" y="205" class="mono ink" font-size="13">la ji xue xiao</text>
+    <text x="306" y="238" class="muted" font-size="12">不做贪心切分，xian 与</text>
+    <text x="306" y="256" class="muted" font-size="12">xi'an 的歧义全部保留</text>
+
+    <rect x="520" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="536" y="158" class="verm" font-size="13" font-weight="700">③ 词典引擎</text>
+    <text x="536" y="186" class="ink" font-size="14">吉林大学 + 垃圾 + 学校</text>
+    <text x="536" y="212" class="muted" font-size="12">144 万词的精确命中，加上</text>
+    <text x="536" y="230" class="muted" font-size="12">束搜索把词拼成整句，</text>
+    <text x="536" y="248" class="muted" font-size="12">词频高的组合分数更高</text>
+    <text x="536" y="276" class="indigo" font-size="12" font-weight="600">此刻候选窗已经能用</text>
+
+    <rect x="750" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="766" y="158" class="verm" font-size="13" font-weight="700">④ Qwen 重排（异步）</text>
+    <text x="766" y="186" class="ink" font-size="13">P(候选 | 已提交上下文)</text>
+    <text x="766" y="212" class="muted" font-size="12">0.6B 模型在本机为前 16 个</text>
+    <text x="766" y="230" class="muted" font-size="12">候选打上下文分；共享前缀</text>
+    <text x="766" y="248" class="muted" font-size="12">一批算完，新按键随时取消</text>
+    <text x="766" y="276" class="indigo" font-size="12" font-weight="600">有上下文时话语权更大</text>
+
+    <rect x="980" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="996" y="158" class="verm" font-size="13" font-weight="700">⑤ 个人先验</text>
+    <text x="996" y="186" class="ink" font-size="13">你选过的，下次靠前</text>
+    <text x="996" y="212" class="muted" font-size="12">选中加权、被跳过降权，</text>
+    <text x="996" y="230" class="muted" font-size="12">带时间衰减；全部记录</text>
+    <text x="996" y="248" class="muted" font-size="12">加密存在本机</text>
+  </g>
+
+  <!-- arrows between cards -->
+  <g stroke="#6E6F66" stroke-width="2" fill="none">
+    <path d="M260 212 L290 212"/>
+    <path d="M490 212 L520 212"/>
+    <path d="M720 212 L750 212" stroke-dasharray="6 5"/>
+    <path d="M950 212 L980 212"/>
+  </g>
+  <g fill="#6E6F66">
+    <path d="M290 212 l-9 -5 v10 z"/>
+    <path d="M520 212 l-9 -5 v10 z"/>
+    <path d="M750 212 l-9 -5 v10 z"/>
+    <path d="M980 212 l-9 -5 v10 z"/>
+  </g>
+
+  <!-- latency strip -->
+  <g class="sans">
+    <text x="160" y="330" text-anchor="middle" class="mono muted" font-size="13">&lt;1 ms</text>
+    <text x="390" y="330" text-anchor="middle" class="mono muted" font-size="13">&lt;1 ms</text>
+    <text x="620" y="330" text-anchor="middle" class="mono muted" font-size="13">~3 ms</text>
+    <text x="850" y="330" text-anchor="middle" class="mono muted" font-size="13">20–60 ms · 异步</text>
+    <text x="1080" y="330" text-anchor="middle" class="mono muted" font-size="13">&lt;1 ms</text>
+  </g>
+
+  <!-- result bar -->
+  <text x="60" y="396" class="sans ink" font-size="15" font-weight="600">最终排序</text>
+  <rect x="60" y="416" width="1120" height="64" rx="14" fill="#FDFAF2" stroke="#DCD5C4"/>
+  <rect x="74" y="426" width="256" height="44" rx="9" fill="#41628A"/>
+  <text x="88" y="455" class="sans" font-size="20" fill="#FDFAF2"><tspan font-weight="600">1</tspan>  吉林大学垃圾学校</text>
+  <text x="352" y="455" class="sans ink" font-size="20"><tspan class="muted">2</tspan>  吉林大学辣鸡学校</text>
+  <text x="612" y="455" class="sans ink" font-size="20"><tspan class="muted">3</tspan>  吉林大学</text>
+  <text x="786" y="455" class="sans ink" font-size="20"><tspan class="muted">4</tspan>  垃圾</text>
+  <text x="906" y="455" class="sans ink" font-size="20"><tspan class="muted">5</tspan>  学校</text>
+
+  <text x="60" y="528" class="sans muted" font-size="13">词序分 = 词典频率与整句结构 + Qwen 上下文分（有上下文 0.42 / 无上下文 0.25）+ 个人选择先验；Return 永远可以原样上屏</text>
+</svg>

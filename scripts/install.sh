@@ -8,7 +8,6 @@ app_label="com.biling.inputmethod.app"
 model_name="qwen3-0.6b-base-q4_k_m.gguf"
 model_source="$project_root/Models/$model_name"
 expected_sha256="218d3f063193b40008d4e63d90cf83e7dc6d33a8c6c1c647589f868a8fc74492"
-original_input_source=$(xcrun swift "$project_root/scripts/register.swift" --current 2>/dev/null || true)
 
 required_build_dependencies=(
   /opt/homebrew/opt/llama.cpp/lib/libllama.0.dylib
@@ -175,13 +174,13 @@ launchctl kickstart -k "gui/$(id -u)/$engine_label"
 xpc_smoke_log="$staging_root/qwen-xpc-smoke.log"
 if ! /usr/bin/perl -e 'alarm 45; exec @ARGV' \
   "$destination/Contents/Helpers/biling-cli" \
-  --xpc jilindaxue >"$xpc_smoke_log" 2>&1; then
+  --xpc jilindaxuelajixuexiao >"$xpc_smoke_log" 2>&1; then
     print -u2 "The installed Qwen XPC service failed its ranking smoke test:"
     tail -n 120 "$xpc_smoke_log" >&2
     exit 70
 fi
-if ! grep -q '^1\. 吉林大学' "$xpc_smoke_log"; then
-  print -u2 "Qwen did not rank 吉林大学 first in the release smoke test:"
+if ! grep -q '^1\. 吉林大学垃圾学校' "$xpc_smoke_log"; then
+  print -u2 "Qwen did not rank 吉林大学垃圾学校 first in the release smoke test:"
   tail -n 40 "$xpc_smoke_log" >&2
   exit 70
 fi
@@ -197,11 +196,12 @@ if ! /usr/bin/perl -e 'alarm 40; exec @ARGV' \
 fi
 print "Installed-app Qwen health check passed."
 
-xcrun swift "$project_root/scripts/register.swift" "$destination"
+original_input_source=$("$destination/Contents/MacOS/BiLingApp" --current-input-source 2>/dev/null || true)
+"$destination/Contents/MacOS/BiLingApp" --register-input-source
 killall TextInputMenuAgent 2>/dev/null || true
 if [[ -n "$original_input_source" ]]; then
-  xcrun swift "$project_root/scripts/register.swift" \
-    --select "$original_input_source" 2>/dev/null || true
+  "$destination/Contents/MacOS/BiLingApp" \
+    --select-input-source "$original_input_source" 2>/dev/null || true
 fi
 
 app_launch_plist="$launch_agents_dir/$app_label.plist"

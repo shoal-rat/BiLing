@@ -18,6 +18,9 @@ public final class DictTrie: @unchecked Sendable {
     private var nodes: [Node] = [Node()]
     private var database: OpaquePointer?
     private let databaseQueue = DispatchQueue(label: "com.biling.lexicon-database")
+    private var exactStatement: OpaquePointer?
+    private var prefixProbeStatement: OpaquePointer?
+    private var maxKeyLength = 24
     public private(set) var syllables: Set<String> = []
     public private(set) var entryCount = 0
 
@@ -46,10 +49,30 @@ public final class DictTrie: @unchecked Sendable {
         }
         database = handle
         entryCount = Self.scalarInt(handle, sql: "SELECT COUNT(*) FROM entries;")
+        maxKeyLength = max(1, Self.scalarInt(handle, sql: "SELECT MAX(LENGTH(key)) FROM entries;"))
         syllables = SyllableInventory.standard.syllables
+        sqlite3_prepare_v2(
+            handle,
+            "SELECT key, text, weight, pinyin FROM entries WHERE key = ? ORDER BY weight DESC LIMIT ?;",
+            -1,
+            &exactStatement,
+            nil
+        )
+        // Pinyin keys are pure a–z, so [prefix, prefix + "{") covers exactly the
+        // keys that start with prefix; one index probe replaces a full query per
+        // dead-end prefix during sentence search.
+        sqlite3_prepare_v2(
+            handle,
+            "SELECT 1 FROM entries WHERE key >= ? AND key < ? LIMIT 1;",
+            -1,
+            &prefixProbeStatement,
+            nil
+        )
     }
 
     deinit {
+        if let exactStatement { sqlite3_finalize(exactStatement) }
+        if let prefixProbeStatement { sqlite3_finalize(prefixProbeStatement) }
         if let database {
             sqlite3_close(database)
         }
@@ -97,7 +120,7 @@ public final class DictTrie: @unchecked Sendable {
     }
 
     public func exact(_ key: String, limit: Int = 200) -> [LexiconEntry] {
-        guard let database else {
+        guard database != nil else {
             var nodeIndex = 0
             for character in key {
                 guard let child = nodes[nodeIndex].children[character] else { return [] }
@@ -107,17 +130,11 @@ public final class DictTrie: @unchecked Sendable {
         }
 
         return databaseQueue.sync {
-            var statement: OpaquePointer?
-            let sql = """
-                SELECT key, text, weight, pinyin
-                FROM entries
-                WHERE key = ?
-                ORDER BY weight DESC
-                LIMIT ?;
-                """
-            guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
-                  let statement else { return [] }
-            defer { sqlite3_finalize(statement) }
+            guard let statement = exactStatement else { return [] }
+            defer {
+                sqlite3_reset(statement)
+                sqlite3_clear_bindings(statement)
+            }
             sqlite3_bind_text(statement, 1, key, -1, SQLITE_TRANSIENT)
             sqlite3_bind_int(statement, 2, Int32(limit))
             var result: [LexiconEntry] = []
@@ -136,6 +153,19 @@ public final class DictTrie: @unchecked Sendable {
                 )
             }
             return result
+        }
+    }
+
+    private func hasKeyPrefix(_ prefix: String) -> Bool {
+        databaseQueue.sync {
+            guard let statement = prefixProbeStatement else { return true }
+            defer {
+                sqlite3_reset(statement)
+                sqlite3_clear_bindings(statement)
+            }
+            sqlite3_bind_text(statement, 1, prefix, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 2, prefix + "{", -1, SQLITE_TRANSIENT)
+            return sqlite3_step(statement) == SQLITE_ROW
         }
     }
 
@@ -162,8 +192,10 @@ public final class DictTrie: @unchecked Sendable {
 
         var output: [(Int, LexiconEntry)] = []
         var prefix = ""
-        for cursor in start..<characters.count {
+        let upper = min(characters.count, start + maxKeyLength)
+        for cursor in start..<upper {
             prefix.append(characters[cursor])
+            guard hasKeyPrefix(prefix) else { break }
             for entry in exact(prefix, limit: maxEntriesPerKey) {
                 output.append((cursor + 1, entry))
             }

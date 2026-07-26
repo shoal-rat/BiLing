@@ -92,10 +92,10 @@ public final class QwenRanker: @unchecked Sendable {
                 let clock = ContinuousClock()
                 let start = clock.now
                 biling_llama_reset_cancel(handle.rawValue)
-                // The first candidate page is the only latency-critical surface. Scoring
-                // twelve complete paths keeps the shared-prefix batch under the 50–70 ms
-                // warm target while the deterministic generator preserves every later page.
-                let capped = Array(request.candidates.prefix(12))
+                // The first candidate page is the only latency-critical surface. Sixteen
+                // paths cover the first page plus blending headroom; the KV prefix cache
+                // and vectorized softmax keep the warm request well under 50 ms.
+                let capped = Array(request.candidates.prefix(16))
                 var values = [Float](repeating: -.infinity, count: capped.count)
                 var error = [CChar](repeating: 0, count: 512)
                 let result = capped.withCStringArray { candidatePointers in

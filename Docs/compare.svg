@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="620" viewBox="0 0 1240 620" role="img" aria-labelledby="title description">
+  <title id="title">BiLing versus conventional and cloud-AI input methods</title>
+  <desc id="description">Conventional local IMEs lack context understanding; cloud AI IMEs send keystrokes to servers; BiLing pairs lexicon speed with local LLM ranking, fully offline.</desc>
+  <style>
+    .sans { font-family: -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; }
+    .ink { fill: #2A3038; }
+    .muted { fill: #6E6F66; }
+    .verm { fill: #C74A34; }
+    .good { fill: #4A7A5A; }
+    .part { fill: #A8702A; }
+    .bad { fill: #A83A2A; }
+  </style>
+  <rect width="1240" height="620" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1239" height="619" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="62" class="sans ink" font-size="26" font-weight="700">Why not just use what exists</text>
+  <text x="60" y="90" class="sans muted" font-size="15">Trade-offs by category, not by brand</text>
+
+  <rect x="908" y="118" width="292" height="452" rx="14" fill="#FDFAF2" stroke="#C74A34" stroke-width="2"/>
+
+  <text x="330" y="152" class="sans ink" font-size="16" font-weight="700">Conventional local IME</text>
+  <text x="330" y="172" class="sans muted" font-size="12">lexicon + n-gram frequency</text>
+  <text x="630" y="152" class="sans ink" font-size="16" font-weight="700">Cloud-AI IME</text>
+  <text x="630" y="172" class="sans muted" font-size="12">the model lives on a server</text>
+  <text x="930" y="152" class="sans verm" font-size="16" font-weight="700">BiLing</text>
+  <text x="930" y="172" class="sans muted" font-size="12">lexicon + local 0.6B model</text>
+
+  <line x1="60" y1="188" x2="1180" y2="188" stroke="#DCD5C4"/>
+
+  <g class="sans">
+    <text x="60" y="226" class="ink" font-size="14" font-weight="600">Sentence and context understanding</text>
+    <text x="330" y="226" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  frequency only, blind to context</tspan></text>
+    <text x="630" y="226" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  strong models</tspan></text>
+    <text x="930" y="226" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  Qwen re-ranks with context</tspan></text>
+    <line x1="60" y1="248" x2="1180" y2="248" stroke="#E8E2D2"/>
+
+    <text x="60" y="290" class="ink" font-size="14" font-weight="600">Where keystrokes go</text>
+    <text x="330" y="290" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  mostly local, cloud features linger</tspan></text>
+    <text x="630" y="290" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  uploaded per keystroke</tspan></text>
+    <text x="930" y="290" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  never leave this Mac, verifiable</tspan></text>
+    <line x1="60" y1="312" x2="1180" y2="312" stroke="#E8E2D2"/>
+
+    <text x="60" y="354" class="ink" font-size="14" font-weight="600">Offline / airplane mode</text>
+    <text x="330" y="354" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  works</tspan></text>
+    <text x="630" y="354" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  the AI part vanishes</tspan></text>
+    <text x="930" y="354" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  everything as usual</tspan></text>
+    <line x1="60" y1="376" x2="1180" y2="376" stroke="#E8E2D2"/>
+
+    <text x="60" y="418" class="ink" font-size="14" font-weight="600">Candidate latency</text>
+    <text x="330" y="418" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  milliseconds</tspan></text>
+    <text x="630" y="418" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  at the mercy of round-trips</tspan></text>
+    <text x="930" y="418" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  lexicon &lt;5 ms, model async</tspan></text>
+    <line x1="60" y1="440" x2="1180" y2="440" stroke="#E8E2D2"/>
+
+    <text x="60" y="482" class="ink" font-size="14" font-weight="600">Personalization</text>
+    <text x="330" y="482" font-size="14"><tspan class="good">✓</tspan><tspan class="muted">  local frequency</tspan></text>
+    <text x="630" y="482" font-size="14"><tspan class="part">△</tspan><tspan class="muted">  profile kept server-side</tspan></text>
+    <text x="930" y="482" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  encrypted here; review and wipe</tspan></text>
+    <line x1="60" y1="504" x2="1180" y2="504" stroke="#E8E2D2"/>
+
+    <text x="60" y="546" class="ink" font-size="14" font-weight="600">If the model process dies</text>
+    <text x="330" y="546" font-size="14"><tspan class="muted">—</tspan></text>
+    <text x="630" y="546" font-size="14"><tspan class="bad">✗</tspan><tspan class="muted">  waiting, or opaque fallback</tspan></text>
+    <text x="930" y="546" font-size="14"><tspan class="good">✓</tspan><tspan class="ink">  lexicon keeps typing; auto-reconnect</tspan></text>
+  </g>
+
+  <text x="60" y="600" class="sans muted" font-size="13">BiLing's stance: the lexicon guarantees there is always an answer; the model makes the answer smarter. Neither needs a network.</text>
+</svg>

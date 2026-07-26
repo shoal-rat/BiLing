@@ -6,11 +6,7 @@ public final class PinyinEngine: @unchecked Sendable {
     public let learningStore: any LearningStore
     public let inventory: SyllableInventory
 
-    private let englishWords = [
-        "vscode", "swift", "python", "github", "chatgpt", "openai", "qwen",
-        "macos", "iphone", "ipad", "email", "google", "notion", "slack",
-        "docker", "kubernetes", "javascript", "typescript", "terminal",
-    ]
+    private let english = EnglishLexicon.shared
 
     public init(dictionary: DictTrie, learningStore: any LearningStore) {
         self.dictionary = dictionary
@@ -44,7 +40,8 @@ public final class PinyinEngine: @unchecked Sendable {
 
         for learned in learningStore.candidates(for: key) { add(learned) }
 
-        for entry in dictionary.exact(key, limit: 240) {
+        let exactEntries = dictionary.exact(key, limit: 240)
+        for entry in exactEntries {
             let wordLengthBonus = log1p(Double(entry.text.count)) * 1.8
             let syllableCount = entry.displayPinyin.split(separator: " ").count
             let exactPhraseBonus = entry.text.count > 1
@@ -63,15 +60,40 @@ public final class PinyinEngine: @unchecked Sendable {
 
         for sentence in sentenceCandidates(key: key, limit: 24) { add(sentence) }
 
+        // A fully typed curated key always surfaces its canonical form —
+        // "claude" → Claude at the top in English mode; "ai" → AI as a lower
+        // candidate because 爱 is a real word; "openai" → OpenAI ahead of
+        // nonsense syllable stitches like 哦喷爱, because no real word owns
+        // that key.
+        if let display = english.exactDisplay(for: key) {
+            let score: Double
+            if mode != .chinesePrimary {
+                score = 26
+            } else if exactEntries.isEmpty {
+                score = 17
+            } else {
+                score = 9
+            }
+            add(
+                Candidate(
+                    text: display,
+                    pinyin: key,
+                    source: .english,
+                    consumed: key.count,
+                    score: score
+                )
+            )
+        }
+
         if mode == .englishPrimary || mode == .chineseWithEnglish || mode == .literal {
-            for word in englishWords where word.hasPrefix(key) && word != key {
+            for (rank, word) in english.completions(for: key, limit: 4).enumerated() {
                 add(
                     Candidate(
                         text: word,
                         pinyin: key,
                         source: .english,
                         consumed: key.count,
-                        score: mode == .englishPrimary ? 22 : 7
+                        score: (mode == .englishPrimary ? 22 : 7) - Double(rank)
                     )
                 )
             }
@@ -120,6 +142,29 @@ public final class PinyinEngine: @unchecked Sendable {
         guard characters.count > 1 else { return [] }
         var beams = [Beam(position: 0, text: "", pinyin: [], score: 0, componentCount: 0)]
         var completed: [Beam] = []
+        // Matches depend only on the start position, never on the beam that asks;
+        // memoizing them caps lexicon lookups at one batch per input position.
+        var matchesByPosition: [Int: [(Int, LexiconEntry)]] = [:]
+        func matches(from position: Int) -> [(Int, LexiconEntry)] {
+            if let cached = matchesByPosition[position] { return cached }
+            let fresh = dictionary.matches(in: characters, from: position, maxEntriesPerKey: 3)
+            matchesByPosition[position] = fresh
+            return fresh
+        }
+        // A tail that still parses as pinyin may only complete to curated
+        // English (vscode, github, …); otherwise rare system words would leak
+        // into ordinary Chinese sentences. Non-pinyin tails get the full list.
+        let segmenter = Segmenter(inventory: inventory)
+        var englishTailByPosition: [Int: String?] = [:]
+        func englishTail(from position: Int) -> String? {
+            if let cached = englishTailByPosition[position] { return cached }
+            let suffix = String(characters[position...])
+            let completion = segmenter.segment(suffix).isComplete
+                ? english.curatedCompletion(for: suffix)
+                : english.bestCompletion(for: suffix)
+            englishTailByPosition[position] = completion
+            return completion
+        }
 
         while !beams.isEmpty {
             var next: [Beam] = []
@@ -128,25 +173,27 @@ public final class PinyinEngine: @unchecked Sendable {
                     completed.append(beam)
                     continue
                 }
-                let matches = dictionary.matches(in: characters, from: beam.position, maxEntriesPerKey: 3)
-                for (end, entry) in matches {
+                for (end, entry) in matches(from: beam.position) {
+                    // Single-letter keys (嗯 n, 呣 m…) stitch valid-looking
+                    // nonsense like 发嗯 for "fan"; tax them so real words win.
+                    let shortKeyPenalty: Double = end - beam.position == 1 ? 8 : 0
                     next.append(
                         Beam(
                             position: end,
                             text: appendSegment(entry.text, to: beam.text),
                             pinyin: beam.pinyin + [entry.displayPinyin],
-                            score: beam.score + log1p(max(0, entry.weight)) + Double(end - beam.position) * 0.35,
+                            score: beam.score + log1p(max(0, entry.weight))
+                                + Double(end - beam.position) * 0.35 - shortKeyPenalty,
                             componentCount: beam.componentCount + 1
                         )
                     )
                 }
-                let suffix = String(characters[beam.position...])
-                if let english = englishWords.first(where: { $0.hasPrefix(suffix) }) {
+                if let completion = englishTail(from: beam.position) {
                     next.append(
                         Beam(
                             position: characters.count,
-                            text: appendSegment(english, to: beam.text),
-                            pinyin: beam.pinyin + [suffix],
+                            text: appendSegment(completion, to: beam.text),
+                            pinyin: beam.pinyin + [String(characters[beam.position...])],
                             score: beam.score + 10,
                             componentCount: beam.componentCount + 1
                         )

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="540" viewBox="0 0 1100 540" role="img" aria-labelledby="title description">
+  <title id="title">BiLing's on-device learning loop</title>
+  <desc id="description">A selection is encrypted into the local dictionary immediately, weights update with time decay, and the very next input benefits; password fields, terminals, long digits, and high-entropy text are never learned, and everything can be wiped in one click.</desc>
+  <style>
+    .sans { font-family: -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    .ink { fill: #2A3038; }
+    .muted { fill: #6E6F66; }
+    .verm { fill: #C74A34; }
+    .indigo { fill: #41628A; }
+    .panel { fill: #FDFAF2; stroke: #DCD5C4; }
+  </style>
+  <rect width="1100" height="540" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1099" height="539" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="62" class="sans ink" font-size="26" font-weight="700">Pick once, and the next time is smoother</text>
+  <text x="60" y="90" class="sans muted" font-size="15">All four steps happen on this Mac; none of them ever touches the network</text>
+
+  <rect x="60" y="120" width="330" height="120" rx="12" class="panel"/>
+  <text x="80" y="152" class="sans verm" font-size="14" font-weight="700">① You make a choice</text>
+  <text x="80" y="180" class="sans ink" font-size="14">Say you page past the default to pick #3</text>
+  <text x="80" y="204" class="sans muted" font-size="12">Skipping the default is itself a real signal</text>
+
+  <rect x="710" y="120" width="330" height="120" rx="12" class="panel"/>
+  <text x="730" y="152" class="sans verm" font-size="14" font-weight="700">② Written to the local store at once</text>
+  <text x="730" y="180" class="sans ink" font-size="14">AES-GCM encrypted, key kept in Keychain</text>
+  <text x="730" y="204" class="sans muted" font-size="12">Folder excluded from backups and iCloud</text>
+
+  <rect x="710" y="330" width="330" height="120" rx="12" class="panel"/>
+  <text x="730" y="362" class="sans verm" font-size="14" font-weight="700">③ Weights update instantly</text>
+  <text x="730" y="390" class="sans ink" font-size="14">Chosen gains; the skipped default dips</text>
+  <text x="730" y="414" class="sans muted" font-size="12">Exponential decay lets old habits fade out</text>
+
+  <rect x="60" y="330" width="330" height="120" rx="12" class="panel"/>
+  <text x="80" y="362" class="sans verm" font-size="14" font-weight="700">④ The very next input benefits</text>
+  <text x="80" y="390" class="sans ink" font-size="14">Same pinyin — your word ranks first</text>
+  <text x="80" y="414" class="sans muted" font-size="12">No training job to wait for; it's the next key</text>
+
+  <rect x="435" y="196" width="230" height="178" rx="12" fill="#F7F3E9" stroke="#C74A34" stroke-width="1.5"/>
+  <text x="550" y="224" text-anchor="middle" class="sans verm" font-size="14" font-weight="700">Never learned</text>
+  <g class="sans muted" font-size="12">
+    <text x="455" y="250">· Password fields (Secure Input)</text>
+    <text x="455" y="272">· Terminals, password managers</text>
+    <text x="455" y="294">· Digits, URLs, high-entropy text</text>
+    <text x="455" y="316">· Raw text committed via Return</text>
+  </g>
+  <line x1="455" y1="332" x2="645" y2="332" stroke="#DCD5C4"/>
+  <text x="550" y="356" text-anchor="middle" class="sans ink" font-size="12">Review it all — wipe in one click</text>
+
+  <g stroke="#6E6F66" stroke-width="2" fill="none">
+    <path d="M390 180 L710 180"/>
+    <path d="M875 240 L875 330"/>
+    <path d="M710 390 L390 390"/>
+    <path d="M225 330 L225 240"/>
+  </g>
+  <g fill="#6E6F66">
+    <path d="M710 180 l-9 -5 v10 z"/>
+    <path d="M875 330 l-5 -9 h10 z"/>
+    <path d="M390 390 l9 -5 v10 z"/>
+    <path d="M225 240 l-5 9 h10 z"/>
+  </g>
+
+  <text x="60" y="506" class="sans muted" font-size="13">Relationship to Qwen: the personal prior only adjusts ranking weights — the model itself never sees or trains on your data.</text>
+</svg>

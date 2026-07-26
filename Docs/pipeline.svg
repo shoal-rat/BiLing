@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="560" viewBox="0 0 1240 560" role="img" aria-labelledby="title description">
+  <title id="title">How BiLing finds good words</title>
+  <desc id="description">Keystrokes enter the pinyin lattice, the lexicon engine produces full candidates within milliseconds, Qwen re-ranks asynchronously with context, and the personal prior weighs in last — yielding sentence candidates like 吉林大学垃圾学校.</desc>
+  <style>
+    .sans { font-family: -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    .ink { fill: #2A3038; }
+    .muted { fill: #6E6F66; }
+    .verm { fill: #C74A34; }
+    .indigo { fill: #41628A; }
+    .panel { fill: #FDFAF2; stroke: #DCD5C4; }
+  </style>
+  <rect width="1240" height="560" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1239" height="559" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="62" class="sans ink" font-size="26" font-weight="700">What happens after a keystroke</text>
+  <text x="60" y="90" class="sans muted" font-size="15">The first three stages are synchronous and always answer first; stage four is asynchronous and swaps in a context-aware order when it lands.</text>
+
+  <g class="sans">
+    <rect x="60" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="76" y="158" class="verm" font-size="13" font-weight="700">① Key buffer</text>
+    <text x="76" y="186" class="mono indigo" font-size="14">jilindaxue</text>
+    <text x="76" y="206" class="mono indigo" font-size="14">lajixuexiao</text>
+    <text x="76" y="238" class="muted" font-size="12">Incremental per key; backspace,</text>
+    <text x="76" y="256" class="muted" font-size="12">apostrophes, digit selection</text>
+
+    <rect x="290" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="306" y="158" class="verm" font-size="13" font-weight="700">② Pinyin lattice</text>
+    <text x="306" y="186" class="mono ink" font-size="13">ji lin da xue</text>
+    <text x="306" y="205" class="mono ink" font-size="13">la ji xue xiao</text>
+    <text x="306" y="238" class="muted" font-size="12">No greedy cuts — xian vs</text>
+    <text x="306" y="256" class="muted" font-size="12">xi'an ambiguity survives</text>
+
+    <rect x="520" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="536" y="158" class="verm" font-size="13" font-weight="700">③ Lexicon engine</text>
+    <text x="536" y="186" class="ink" font-size="14">吉林大学 + 垃圾 + 学校</text>
+    <text x="536" y="212" class="muted" font-size="12">Exact hits among 1.44M entries,</text>
+    <text x="536" y="230" class="muted" font-size="12">plus beam search that composes</text>
+    <text x="536" y="248" class="muted" font-size="12">words into full sentences</text>
+    <text x="536" y="276" class="indigo" font-size="12" font-weight="600">The panel is usable right now</text>
+
+    <rect x="750" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="766" y="158" class="verm" font-size="13" font-weight="700">④ Qwen re-rank (async)</text>
+    <text x="766" y="186" class="ink" font-size="13">P(candidate | context)</text>
+    <text x="766" y="212" class="muted" font-size="12">The 0.6B model scores the top 16</text>
+    <text x="766" y="230" class="muted" font-size="12">in one shared-prefix batch;</text>
+    <text x="766" y="248" class="muted" font-size="12">a new keystroke cancels it</text>
+    <text x="766" y="276" class="indigo" font-size="12" font-weight="600">Its vote grows with context</text>
+
+    <rect x="980" y="128" width="200" height="168" rx="12" class="panel"/>
+    <text x="996" y="158" class="verm" font-size="13" font-weight="700">⑤ Personal prior</text>
+    <text x="996" y="186" class="ink" font-size="13">What you picked ranks up</text>
+    <text x="996" y="212" class="muted" font-size="12">Chosen gains, skipped decays,</text>
+    <text x="996" y="230" class="muted" font-size="12">with time-based falloff; stored</text>
+    <text x="996" y="248" class="muted" font-size="12">encrypted on this Mac</text>
+  </g>
+
+  <g stroke="#6E6F66" stroke-width="2" fill="none">
+    <path d="M260 212 L290 212"/>
+    <path d="M490 212 L520 212"/>
+    <path d="M720 212 L750 212" stroke-dasharray="6 5"/>
+    <path d="M950 212 L980 212"/>
+  </g>
+  <g fill="#6E6F66">
+    <path d="M290 212 l-9 -5 v10 z"/>
+    <path d="M520 212 l-9 -5 v10 z"/>
+    <path d="M750 212 l-9 -5 v10 z"/>
+    <path d="M980 212 l-9 -5 v10 z"/>
+  </g>
+
+  <g class="sans">
+    <text x="160" y="330" text-anchor="middle" class="mono muted" font-size="13">&lt;1 ms</text>
+    <text x="390" y="330" text-anchor="middle" class="mono muted" font-size="13">&lt;1 ms</text>
+    <text x="620" y="330" text-anchor="middle" class="mono muted" font-size="13">~3 ms</text>
+    <text x="850" y="330" text-anchor="middle" class="mono muted" font-size="13">20–60 ms · async</text>
+    <text x="1080" y="330" text-anchor="middle" class="mono muted" font-size="13">&lt;1 ms</text>
+  </g>
+
+  <text x="60" y="396" class="sans ink" font-size="15" font-weight="600">Final order</text>
+  <rect x="60" y="416" width="1120" height="64" rx="14" fill="#FDFAF2" stroke="#DCD5C4"/>
+  <rect x="74" y="426" width="256" height="44" rx="9" fill="#41628A"/>
+  <text x="88" y="455" class="sans" font-size="20" fill="#FDFAF2"><tspan font-weight="600">1</tspan>  吉林大学垃圾学校</text>
+  <text x="352" y="455" class="sans ink" font-size="20"><tspan class="muted">2</tspan>  吉林大学辣鸡学校</text>
+  <text x="612" y="455" class="sans ink" font-size="20"><tspan class="muted">3</tspan>  吉林大学</text>
+  <text x="786" y="455" class="sans ink" font-size="20"><tspan class="muted">4</tspan>  垃圾</text>
+  <text x="906" y="455" class="sans ink" font-size="20"><tspan class="muted">5</tspan>  学校</text>
+
+  <text x="60" y="528" class="sans muted" font-size="13">score = lexicon frequency and sentence structure + Qwen context score (0.42 with context, 0.25 cold) + personal prior. Return always commits the raw letters.</text>
+</svg>

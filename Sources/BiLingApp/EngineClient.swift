@@ -12,26 +12,19 @@ final class EngineClient {
     )
     private var connection: NSXPCConnection?
     private var reconnectTask: Task<Void, Never>?
-    private var healthTask: Task<Void, Never>?
     private var reconnectAttempt = 0
     private(set) var statusText = "Qwen 正在启动…"
     private(set) var isReady = false
 
     private init() {
+        // Status is refreshed on demand (connect, menu, preferences, failures).
+        // A periodic health poll would wake both processes forever while idle.
         connect()
         refreshStatus()
-        healthTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(15))
-                guard !Task.isCancelled, let self else { return }
-                self.refreshStatus()
-            }
-        }
     }
 
     deinit {
         reconnectTask?.cancel()
-        healthTask?.cancel()
         connection?.invalidate()
     }
 
@@ -63,6 +56,14 @@ final class EngineClient {
                 completion?()
             }
         }
+    }
+
+    func noteRankSuccess(model: String) {
+        isReady = true
+        statusText = model
+        reconnectAttempt = 0
+        reconnectTask?.cancel()
+        reconnectTask = nil
     }
 
     func rank(

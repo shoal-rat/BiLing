@@ -44,6 +44,7 @@ let package = Package(
                 ]),
                 .linkedLibrary("llama"),
                 .linkedLibrary("ggml"),
+                .linkedFramework("Accelerate"),
             ]
         ),
         .target(

@@ -81,8 +81,8 @@ launchctl kickstart -k "gui/$uid/$engine_label"
 xpc_smoke_log="$staging_root/qwen-xpc-smoke.log"
 if ! /usr/bin/perl -e 'alarm 45; exec @ARGV' \
   "$destination/Contents/Helpers/biling-cli" \
-  --xpc jilindaxue >"$xpc_smoke_log" 2>&1 \
-  || ! grep -q '^1\. 吉林大学' "$xpc_smoke_log"; then
+  --xpc jilindaxuelajixuexiao >"$xpc_smoke_log" 2>&1 \
+  || ! grep -q '^1\. 吉林大学垃圾学校' "$xpc_smoke_log"; then
     print -u2 "The installed Qwen service failed its release check:"
     tail -n 80 "$xpc_smoke_log" >&2
     exit 70

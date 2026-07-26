@@ -1,39 +1,53 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480" role="img" aria-labelledby="title description">
-  <title id="title">笔灵——在 macOS 本地运行的 AI 拼音输入法</title>
-  <desc id="description">深靛蓝色产品横幅：笔灵使用本地 Qwen 模型，把拼音转换为符合上下文的中文候选。</desc>
-  <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#11152b"/>
-      <stop offset="0.55" stop-color="#29265f"/>
-      <stop offset="1" stop-color="#5a3fd0"/>
-    </linearGradient>
-    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#b7c6ff"/>
-      <stop offset="1" stop-color="#ffffff"/>
-    </linearGradient>
-    <filter id="blur"><feGaussianBlur stdDeviation="34"/></filter>
-    <filter id="shadow" x="-20%" y="-30%" width="140%" height="160%">
-      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#080a19" flood-opacity="0.38"/>
-    </filter>
-  </defs>
-  <rect width="1200" height="480" rx="36" fill="url(#background)"/>
-  <circle cx="1030" cy="70" r="170" fill="#8c79ff" opacity="0.22" filter="url(#blur)"/>
-  <circle cx="160" cy="440" r="140" fill="#4f7cff" opacity="0.18" filter="url(#blur)"/>
-  <g transform="translate(70 66)">
-    <rect width="82" height="82" rx="23" fill="#ffffff" opacity="0.12"/>
-    <path d="M25 23v36M25 41h25M50 23v36M17 32h16M42 50h20" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
-    <text x="106" y="37" fill="#fff" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif" font-size="34" font-weight="750">笔灵 BiLing</text>
-    <text x="106" y="69" fill="#cbd1ff" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif" font-size="18" font-weight="520" letter-spacing="1.5">macOS 本地 AI 拼音输入法</text>
-  </g>
-  <text x="70" y="226" fill="#c7d1ff" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif" font-size="58" font-weight="780">理解上下文，</text>
-  <text x="70" y="294" fill="#fff" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif" font-size="58" font-weight="780">跟上你的思考。</text>
-  <text x="72" y="342" fill="#d4d8f4" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif" font-size="21">144 万词汇 · Qwen 本地推理 · 零网络 · 原生 InputMethodKit</text>
-  <g transform="translate(662 356)" filter="url(#shadow)">
-    <rect width="468" height="74" rx="22" fill="#f4f4f8" fill-opacity="0.94"/>
-    <rect x="12" y="12" width="148" height="50" rx="15" fill="#6657eb"/>
-    <text x="31" y="45" fill="#fff" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif" font-size="23" font-weight="700">1  吉林大学</text>
-    <text x="179" y="45" fill="#20212a" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif" font-size="23" font-weight="560">2  吉林大雪</text>
-    <circle cx="376" cy="37" r="5" fill="#38c975"/>
-    <text x="386" y="42" fill="#2c9a5c" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="12" font-weight="700">Qwen 138 ms</text>
+  <title id="title">笔灵 — 本地大模型拼音输入法</title>
+  <desc id="description">输入 jilindaxuelajixuexiao，候选第一位是 吉林大学垃圾学校。词典先出结果，Qwen 在本机重排，全程离线。</desc>
+  <style>
+    .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    .ink { fill: #2A3038; }
+    .muted { fill: #6E6F66; }
+    .verm { fill: #C74A34; }
+    .indigo { fill: #41628A; }
+  </style>
+  <rect width="1200" height="480" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1199" height="479" fill="none" stroke="#DCD5C4"/>
+
+  <!-- seal -->
+  <rect x="72" y="72" width="76" height="76" rx="8" fill="none" stroke="#C74A34" stroke-width="3"/>
+  <text x="110" y="106" text-anchor="middle" class="sans verm" font-size="28" font-weight="700">笔</text>
+  <text x="110" y="138" text-anchor="middle" class="sans verm" font-size="28" font-weight="700">灵</text>
+
+  <text x="176" y="116" class="sans ink" font-size="44" font-weight="700">笔灵 BiLing</text>
+  <text x="176" y="152" class="sans muted" font-size="19">跑在你 Mac 上的大模型拼音输入法 · 词典打底，Qwen 排序，不碰网络</text>
+
+  <!-- candidate bar demo -->
+  <text x="72" y="228" class="mono indigo" font-size="20">jilindaxuelajixuexiao<tspan class="muted">▏</tspan></text>
+
+  <rect x="72" y="248" width="1056" height="64" rx="14" fill="#FDFAF2" stroke="#DCD5C4"/>
+  <rect x="86" y="258" width="252" height="44" rx="9" fill="#41628A"/>
+  <text x="100" y="287" class="sans" font-size="20" fill="#FDFAF2"><tspan font-weight="600">1</tspan>  吉林大学垃圾学校</text>
+  <text x="360" y="287" class="sans ink" font-size="20"><tspan class="muted">2</tspan>  吉林大学辣鸡学校</text>
+  <text x="618" y="287" class="sans ink" font-size="20"><tspan class="muted">3</tspan>  吉林大学</text>
+  <text x="790" y="287" class="sans ink" font-size="20"><tspan class="muted">4</tspan>  垃圾</text>
+  <text x="908" y="287" class="sans muted" font-size="14">1/3</text>
+  <text x="952" y="287" class="sans" font-size="14" fill="#4A7A5A">Qwen · 21 ms</text>
+
+  <!-- stat chips -->
+  <g class="sans">
+    <rect x="72" y="356" width="222" height="56" rx="12" fill="#FDFAF2" stroke="#DCD5C4"/>
+    <text x="92" y="380" class="verm" font-size="15" font-weight="600">完全本地</text>
+    <text x="92" y="400" class="muted" font-size="13">无网络权限，可验证</text>
+
+    <rect x="310" y="356" width="222" height="56" rx="12" fill="#FDFAF2" stroke="#DCD5C4"/>
+    <text x="330" y="380" class="verm" font-size="15" font-weight="600">144 万词汇</text>
+    <text x="330" y="400" class="muted" font-size="13">词典 &lt;5 ms 先出候选</text>
+
+    <rect x="548" y="356" width="222" height="56" rx="12" fill="#FDFAF2" stroke="#DCD5C4"/>
+    <text x="568" y="380" class="verm" font-size="15" font-weight="600">Qwen3-0.6B</text>
+    <text x="568" y="400" class="muted" font-size="13">按上下文异步重排</text>
+
+    <rect x="786" y="356" width="222" height="56" rx="12" fill="#FDFAF2" stroke="#DCD5C4"/>
+    <text x="806" y="380" class="verm" font-size="15" font-weight="600">越用越顺</text>
+    <text x="806" y="400" class="muted" font-size="13">选择在本机加密学习</text>
   </g>
 </svg>

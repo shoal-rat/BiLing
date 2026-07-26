@@ -4,13 +4,11 @@ public struct SyllableEdge: Hashable, Codable, Sendable {
     public let start: Int
     public let end: Int
     public let syllable: String
-    public let prior: Double
 
-    public init(start: Int, end: Int, syllable: String, prior: Double = 0) {
+    public init(start: Int, end: Int, syllable: String) {
         self.start = start
         self.end = end
         self.syllable = syllable
-        self.prior = prior
     }
 }
 
@@ -37,7 +35,7 @@ public struct Segmenter: Sendable {
         var result = Array(repeating: [SyllableEdge](), count: characters.count + 1)
         for start in characters.indices {
             if characters[start] == "'" {
-                result[start].append(.init(start: start, end: start + 1, syllable: "'", prior: 0))
+                result[start].append(.init(start: start, end: start + 1, syllable: "'"))
                 continue
             }
             let upper = min(characters.count, start + 6)

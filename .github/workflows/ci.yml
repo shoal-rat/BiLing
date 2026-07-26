@@ -28,7 +28,6 @@ jobs:
           plutil -lint Resources/LaunchAgents/*.plist.in
           zsh -n scripts/install.sh scripts/install_online.sh scripts/install_prebuilt.sh
           zsh -n scripts/package_online_release.sh scripts/package_release.sh scripts/uninstall.sh
-          swiftc -parse scripts/register.swift
 
       - name: Run Swift tests
         run: swift test

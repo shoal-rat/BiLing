@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="540" viewBox="0 0 1100 540" role="img" aria-labelledby="title description">
+  <title id="title">笔灵的本地学习循环</title>
+  <desc id="description">选择候选后立即加密写入本地词库，权重即时更新并随时间衰减，下一次输入马上生效；密码框、终端、长数字与高熵文本永不学习，且可一键清除。</desc>
+  <style>
+    .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    .ink { fill: #2A3038; }
+    .muted { fill: #6E6F66; }
+    .verm { fill: #C74A34; }
+    .indigo { fill: #41628A; }
+    .panel { fill: #FDFAF2; stroke: #DCD5C4; }
+  </style>
+  <rect width="1100" height="540" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1099" height="539" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="62" class="sans ink" font-size="26" font-weight="700">选一次，下一次就更顺手</text>
+  <text x="60" y="90" class="sans muted" font-size="15">四步循环全部发生在这台 Mac 上，没有任何一步经过网络</text>
+
+  <!-- top-left node -->
+  <rect x="60" y="120" width="330" height="120" rx="12" class="panel"/>
+  <text x="80" y="152" class="sans verm" font-size="14" font-weight="700">① 你做了一次选择</text>
+  <text x="80" y="180" class="sans ink" font-size="14">比如翻过默认词，选了第 3 个候选</text>
+  <text x="80" y="204" class="sans muted" font-size="12">跳过默认词这件事本身也是有效信号</text>
+
+  <!-- top-right node -->
+  <rect x="710" y="120" width="330" height="120" rx="12" class="panel"/>
+  <text x="730" y="152" class="sans verm" font-size="14" font-weight="700">② 立刻写入本地词库</text>
+  <text x="730" y="180" class="sans ink" font-size="14">AES-GCM 加密，密钥保存在 Keychain</text>
+  <text x="730" y="204" class="sans muted" font-size="12">目录排除系统备份，文件不进 iCloud</text>
+
+  <!-- bottom-right node -->
+  <rect x="710" y="330" width="330" height="120" rx="12" class="panel"/>
+  <text x="730" y="362" class="sans verm" font-size="14" font-weight="700">③ 权重即时更新</text>
+  <text x="730" y="390" class="sans ink" font-size="14">选中的加分，被跳过的轻微减分</text>
+  <text x="730" y="414" class="sans muted" font-size="12">按使用时钟指数衰减，旧偏好自然淡出</text>
+
+  <!-- bottom-left node -->
+  <rect x="60" y="330" width="330" height="120" rx="12" class="panel"/>
+  <text x="80" y="362" class="sans verm" font-size="14" font-weight="700">④ 下一次输入立即生效</text>
+  <text x="80" y="390" class="sans ink" font-size="14">同样的拼音，你的选择排到最前</text>
+  <text x="80" y="414" class="sans muted" font-size="12">不用等训练任务，改变发生在下一个按键</text>
+
+  <!-- center privacy panel (kept clear of the loop arrows at y=180 and y=390) -->
+  <rect x="435" y="196" width="230" height="178" rx="12" fill="#F7F3E9" stroke="#C74A34" stroke-width="1.5"/>
+  <text x="550" y="224" text-anchor="middle" class="sans verm" font-size="14" font-weight="700">永不学习</text>
+  <g class="sans muted" font-size="12">
+    <text x="455" y="250">· 密码框（Secure Input）</text>
+    <text x="455" y="272">· 终端与密码管理器</text>
+    <text x="455" y="294">· 长数字、URL、邮箱、高熵串</text>
+    <text x="455" y="316">· Return 上屏的原文</text>
+  </g>
+  <line x1="455" y1="332" x2="645" y2="332" stroke="#DCD5C4"/>
+  <text x="550" y="356" text-anchor="middle" class="sans ink" font-size="12">设置里可查看全部所学，一键清除</text>
+
+  <!-- loop arrows -->
+  <g stroke="#6E6F66" stroke-width="2" fill="none">
+    <path d="M390 180 L710 180"/>
+    <path d="M875 240 L875 330"/>
+    <path d="M710 390 L390 390"/>
+    <path d="M225 330 L225 240"/>
+  </g>
+  <g fill="#6E6F66">
+    <path d="M710 180 l-9 -5 v10 z"/>
+    <path d="M875 330 l-5 -9 h10 z"/>
+    <path d="M390 390 l9 -5 v10 z"/>
+    <path d="M225 240 l-5 9 h10 z"/>
+  </g>
+
+  <text x="60" y="506" class="sans muted" font-size="13">与 Qwen 的关系：个人先验只调整排序权重，不修改模型；模型没见过你的数据，卸载学习记录不影响任何系统组件</text>
+</svg>
