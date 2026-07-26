@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "如果笔灵对你的研究有帮助，请引用此软件。"
+title: "BiLing: A Native Local-LLM Pinyin Input Method for macOS"
+type: software
+authors:
+  - name: "BiLing contributors"
+version: 1.2.0
+date-released: 2026-07-27
+license: Apache-2.0
+repository-code: "https://github.com/shoal-rat/BiLing"
+url: "https://github.com/shoal-rat/BiLing"
+keywords:
+  - pinyin
+  - input method
+  - macOS
+  - local LLM
+  - Qwen
+abstract: >-
+  BiLing combines an indexed 1.44-million-entry Pinyin lexicon, an incremental
+  Pinyin lattice, encrypted local learning, and a mandatory on-device
+  Qwen3-0.6B ranker in a native InputMethodKit architecture.

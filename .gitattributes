@@ -1,0 +1,5 @@
+*.gguf filter=lfs diff=lfs merge=lfs -text
+*.icns binary
+*.png binary
+*.sqlite3 binary
+*.dict.yaml linguist-language=YAML

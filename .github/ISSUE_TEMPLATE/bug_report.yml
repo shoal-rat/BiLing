@@ -1,0 +1,43 @@
+name: Bug report
+description: 报告可复现的输入、候选窗、Qwen 或安装问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告。请勿粘贴密码、私人输入历史或其他敏感数据。
+  - type: input
+    id: version
+    attributes:
+      label: BiLing version
+      placeholder: "1.2.0 (3)"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: macOS and hardware
+      placeholder: "macOS 26.x, Apple M-series"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: 请给出最小、可重复的步骤。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and sanitized logs
+      description: 请删除私人文本、用户名和路径中的敏感信息。
+    validations:
+      required: true

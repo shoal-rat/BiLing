@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="690" viewBox="0 0 1240 690" role="img" aria-labelledby="title description">
+  <title id="title">BiLing system architecture</title>
+  <desc id="description">InputMethodKit sends keystrokes through a deterministic pinyin lattice and indexed lexicon, then Qwen reranks candidates over a validated local XPC connection.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#6d63d8"/>
+    </marker>
+    <style>
+      .title{font:700 27px -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#17182b}
+      .label{font:650 18px -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#23243b}
+      .body{font:450 14px -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#595b72}
+      .small{font:600 12px -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;fill:#6d63d8}
+      .box{fill:#fff;stroke:#d8d9e8;stroke-width:1.5}
+      .flow{fill:none;stroke:#6d63d8;stroke-width:2.3;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1240" height="690" rx="28" fill="#f7f7fb"/>
+  <text x="52" y="58" class="title">BiLing: constrained decoding in a native macOS input path</text>
+  <text x="52" y="87" class="body">Every keystroke receives a deterministic response; every non-literal candidate is submitted to the mandatory local Qwen ranker.</text>
+
+  <rect x="52" y="130" width="232" height="126" rx="18" class="box"/>
+  <circle cx="87" cy="166" r="17" fill="#6657eb"/>
+  <text x="80" y="172" font-family="-apple-system,sans-serif" font-size="18" font-weight="700" fill="#fff">1</text>
+  <text x="116" y="171" class="label">InputMethodKit</text>
+  <text x="76" y="205" class="body">keyCode + modifiers</text>
+  <text x="76" y="228" class="body">marked text + commit</text>
+
+  <rect x="352" y="130" width="246" height="126" rx="18" class="box"/>
+  <circle cx="387" cy="166" r="17" fill="#6657eb"/>
+  <text x="380" y="172" font-family="-apple-system,sans-serif" font-size="18" font-weight="700" fill="#fff">2</text>
+  <text x="416" y="171" class="label">Pinyin lattice</text>
+  <text x="376" y="205" class="body">all valid syllable splits</text>
+  <text x="376" y="228" class="body">literal escape always retained</text>
+
+  <rect x="666" y="130" width="250" height="126" rx="18" class="box"/>
+  <circle cx="701" cy="166" r="17" fill="#6657eb"/>
+  <text x="694" y="172" font-family="-apple-system,sans-serif" font-size="18" font-weight="700" fill="#fff">3</text>
+  <text x="730" y="171" class="label">Indexed lexicon</text>
+  <text x="690" y="205" class="body">1,440,094 attributed entries</text>
+  <text x="690" y="228" class="body">exact words + bounded beam</text>
+
+  <rect x="984" y="130" width="204" height="126" rx="18" class="box"/>
+  <circle cx="1019" cy="166" r="17" fill="#6657eb"/>
+  <text x="1012" y="172" font-family="-apple-system,sans-serif" font-size="18" font-weight="700" fill="#fff">4</text>
+  <text x="1048" y="171" class="label">Candidate UI</text>
+  <text x="1008" y="205" class="body">native accessible labels</text>
+  <text x="1008" y="228" class="body">selection · page · status</text>
+
+  <path d="M284 193 H344" class="flow"/>
+  <path d="M598 193 H658" class="flow"/>
+  <path d="M916 193 H976" class="flow"/>
+
+  <rect x="353" y="332" width="564" height="253" rx="24" fill="#eeecff" stroke="#bdb7f3" stroke-width="1.5"/>
+  <text x="381" y="374" class="small">SAME-USER · CODE-SIGNATURE-VALIDATED XPC</text>
+  <rect x="382" y="402" width="216" height="136" rx="17" class="box"/>
+  <text x="408" y="439" class="label">biling-engined</text>
+  <text x="408" y="470" class="body">one model for all clients</text>
+  <text x="408" y="495" class="body">generation-aware cancellation</text>
+  <rect x="668" y="402" width="220" height="136" rx="17" class="box"/>
+  <text x="694" y="439" class="label">Qwen3-0.6B</text>
+  <text x="694" y="470" class="body">Q4_K_M · Metal · llama.cpp</text>
+  <text x="694" y="495" class="body">contextual candidate scores</text>
+  <path d="M598 470 H660" class="flow"/>
+
+  <path d="M791 256 V300 Q791 318 773 318 H635 V394" class="flow"/>
+  <path d="M888 470 H940 Q958 470 958 452 V288 Q958 270 976 270 H1086 V264" class="flow"/>
+
+  <rect x="52" y="332" width="232" height="253" rx="22" class="box"/>
+  <text x="78" y="374" class="small">PERSONAL PRIOR</text>
+  <text x="78" y="411" class="label">Encrypted learning</text>
+  <text x="78" y="447" class="body">AES-GCM SQLite</text>
+  <text x="78" y="472" class="body">Keychain-held key</text>
+  <text x="78" y="497" class="body">tick decay + skip penalty</text>
+  <text x="78" y="522" class="body">secure-input learning guard</text>
+  <path d="M284 458 H320 Q338 458 338 440 V275 Q338 257 352 237" class="flow"/>
+
+  <line x1="52" y1="624" x2="1188" y2="624" stroke="#dcdeea"/>
+  <circle cx="65" cy="654" r="5" fill="#38b86e"/>
+  <text x="80" y="659" class="body">No network path</text>
+  <circle cx="260" cy="654" r="5" fill="#38b86e"/>
+  <text x="275" y="659" class="body">Model and lexicon bundled</text>
+  <circle cx="512" cy="654" r="5" fill="#38b86e"/>
+  <text x="527" y="659" class="body">Stale replies rejected by client ID + generation</text>
+  <circle cx="912" cy="654" r="5" fill="#38b86e"/>
+  <text x="927" y="659" class="body">Literal input remains recoverable</text>
+</svg>

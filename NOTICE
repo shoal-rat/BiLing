@@ -1,0 +1,14 @@
+BiLing
+Copyright 2026 BiLing contributors
+
+This product includes the Qwen3-0.6B-Base model, licensed under Apache-2.0.
+
+This product includes data derived from Rime pinyin-simp, licensed under
+Apache-2.0.
+
+This product includes data derived from Wanxiang Pinyin, licensed under
+CC BY 4.0 and pinned to commit
+1daf1e973001271331517fef3fb86eceb7e69afd.
+
+Complete license texts and transformation notices are stored under Models/
+and Resources/Lexicon/ and are copied into the installed application.

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - name: Check out source without downloading the model
+        uses: actions/checkout@v6
+        with:
+          lfs: false
+
+      - name: Install native build dependencies
+        run: brew install llama.cpp ggml libomp
+
+      - name: Validate metadata and scripts
+        run: |
+          plutil -lint Resources/App/Info.plist
+          plutil -lint Resources/LaunchAgents/*.plist.in
+          zsh -n scripts/install.sh scripts/install_prebuilt.sh scripts/package_release.sh scripts/uninstall.sh
+          swiftc -parse scripts/register.swift
+
+      - name: Run Swift tests
+        run: swift test
