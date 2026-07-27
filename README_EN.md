@@ -267,7 +267,8 @@ Power Mode BiLing switches the session to Apple pinyin by itself.
 ## Verify it yourself
 
 ```bash
-swift test    # 25 tests: segmentation ambiguity, heteronyms, abbreviations,
+swift test    # 25 unit tests
+.build/release/biling-cli --evaluate Tests/Corpus/eval.tsv   # accuracy on 72 labelled items
               # learning, privacy guard, and the README-example regression
 ```
 

@@ -218,7 +218,8 @@ Caps Lock 切换。
 ## 自己验证
 
 ```bash
-swift test          # 25 项测试：切分歧义、多音字、简拼、学习、隐私守卫、示例回归
+swift test          # 25 项单元测试
+.build/release/biling-cli --evaluate Tests/Corpus/eval.tsv   # 72 条语料上的准确率
 ```
 
 ```bash
