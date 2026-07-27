@@ -68,7 +68,7 @@ public final class PinyinEngine: @unchecked Sendable {
             )
         }
 
-        for sentence in sentenceCandidates(key: key, limit: 24) { add(sentence) }
+        for sentence in sentenceCandidates(key: key, limit: 80) { add(sentence) }
 
         // 简拼: the whole key read as syllable initials (jldx → 吉林大学).
         // When the letters are also full pinyin the interpretation is a long
@@ -180,264 +180,162 @@ public final class PinyinEngine: @unchecked Sendable {
         )
     }
 
-    private struct Beam {
-        var position: Int
-        var text: String
-        var pinyin: [String]
-        var score: Double
-        var componentCount: Int
-        /// The word this path ended on, so the next extension can be scored
-        /// conditionally rather than in isolation.
-        var previousWord: String = DictTrie.sentenceStart
-    }
-
+    /// Builds every way the buffer can be cut into words, then hands the
+    /// lattice to an exact n-best decoder. Candidate *generation* was measured
+    /// to be the binding constraint on accuracy, so the search is exact where
+    /// it can afford to be rather than a beam that hopes.
     private func sentenceCandidates(key: String, limit: Int) -> [Candidate] {
         let logTotal = dictionary.logTotalWeight
         let characters = Array(key)
         guard characters.count > 1 else { return [] }
-        var beams = [Beam(position: 0, text: "", pinyin: [], score: 0, componentCount: 0)]
-        func transitionScore(
-            _ beam: Beam,
-            _ entry: LexiconEntry,
-            _ form: ScoreModel.TypingForm
-        ) -> Double {
-            beam.score + ScoreModel.transitionLogProbability(
-                weight: entry.weight,
-                logTotalWeight: logTotal,
-                conditional: dictionary.transition(from: beam.previousWord, to: entry.text),
-                form: form
-            )
-        }
-        var completed: [Beam] = []
-        // Matches depend only on the start position, never on the beam that asks;
-        // memoizing them caps lexicon lookups at one batch per input position.
-        var matchesByPosition: [Int: [(Int, LexiconEntry)]] = [:]
-        func matches(from position: Int) -> [(Int, LexiconEntry)] {
-            if let cached = matchesByPosition[position] { return cached }
-            // Six homophones per key rather than three. An oracle pass over
-            // the lexicon showed the correct word is present 98.5% of the time
-            // but the search was only allowed to look at three, so fan-in — not
-            // the lexicon — set the coverage ceiling. Six is where the measured
-            // curve flattens: +0.7 coverage for +0.7 ms, while ten and twelve
-            // buy almost nothing more.
-            let fresh = dictionary.matches(in: characters, from: position, maxEntriesPerKey: 6)
-            matchesByPosition[position] = fresh
-            return fresh
-        }
-        // A tail that still parses as pinyin may only complete to curated
-        // English (vscode, github, …); otherwise rare system words would leak
-        // into ordinary Chinese sentences. Non-pinyin tails get the full list.
+
         let segmenter = Segmenter(inventory: inventory)
-        var englishTailByPosition: [Int: (word: String, curated: Bool)?] = [:]
-        func englishTail(from position: Int) -> (word: String, curated: Bool)? {
-            if let cached = englishTailByPosition[position] { return cached }
-            let suffix = String(characters[position...])
-            let completion: (word: String, curated: Bool)?
-            if segmenter.segment(suffix).isComplete {
-                // Still valid pinyin, so only a curated word may claim it.
-                completion = english.curatedCompletion(for: suffix).map { ($0, true) }
-            } else if let curated = english.curatedCompletion(for: suffix) {
-                completion = (curated, true)
-            } else if suffix.count >= 4 {
-                // Below four letters the system word list completes noise —
-                // "is" → "ism", "ei" → "eight" — and outbids real Chinese
-                // readings of the same tail.
-                completion = english.bestCompletion(for: suffix).map { ($0, false) }
-            } else {
-                completion = nil
-            }
-            englishTailByPosition[position] = completion
-            return completion
-        }
-        // Abbreviated segments anywhere in the sentence, which is how people
-        // actually type fast: jilin·dx·meiy·kongt = 吉林·大学·没有·空调.
-        // A word may appear as initials only (dx → 大学) or first-syllable-full
-        // then initials (meiy → 没有). Both are gated on the key not parsing as
-        // pinyin, so ordinary input can never be broken up this way.
-        var codedByPosition: [Int: [(Int, LexiconEntry, Bool)]] = [:]
-        func codedSegments(from position: Int) -> [(Int, LexiconEntry, Bool)] {
-            guard !keyIsPurePinyin else { return [] }
-            if let cached = codedByPosition[position] { return cached }
-            var fresh: [(Int, LexiconEntry, Bool)] = []
-            let available = characters.count - position
-            guard available >= 2 else {
-                codedByPosition[position] = []
-                return []
-            }
-            // Initials-only codes are short by construction; mixed codes carry
-            // one spelled-out syllable, so they run longer.
-            for length in 2...min(available, 9) {
-                let code = String(characters[position..<(position + length)])
-                if length <= 5 {
-                    for entry in dictionary.abbreviated(code, limit: 2) {
-                        fresh.append((position + length, entry, true))
-                    }
-                }
-                if length >= 3 {
-                    for entry in dictionary.mixedCoded(code, limit: 2) {
-                        fresh.append((position + length, entry, false))
-                    }
-                }
-            }
-            codedByPosition[position] = fresh
-            return fresh
-        }
-
-        // 混合简拼 tail: full pinyin followed by initials (beijinghy →
-        // 北京 + 还有). Only when the whole key does NOT parse as pinyin —
-        // otherwise fully valid inputs like "fan" would sprout 发+你.
+        // Abbreviated readings and Latin words inside the sentence are only
+        // considered when the buffer cannot be read as pinyin end to end. This
+        // is librime's rule — it deletes abbreviation edges from the syllable
+        // graph whenever a complete spelling exists — and it is what keeps
+        // ordinary Chinese input byte-for-byte unchanged.
         let keyIsPurePinyin = segmenter.segment(key).isComplete
-        let allowAbbreviationTails = !keyIsPurePinyin
+        var edges: [LatticeEdge] = []
 
-        // An English word sitting inside the sentence (economicslajizhuanye →
-        // economics + 垃圾专业; wozaipolytechnicxuedeleisi → 我在 + polytechnic
-        // + 学的累死). Gated on the key not parsing as pinyin, so ordinary
-        // Chinese input can never be broken up by an accidental English match
-        // — "shanghai" and "wanting" are both English words and valid pinyin.
-        var embeddedByPosition: [Int: [(display: String, length: Int)]] = [:]
-        func embeddedEnglish(from position: Int) -> [(display: String, length: Int)] {
-            guard !keyIsPurePinyin else { return [] }
-            if let cached = embeddedByPosition[position] { return cached }
-            // A run that is itself readable as pinyin belongs to Chinese
-            // unless it is a curated term: "jing" is in the English word list
-            // but in 北京还有 it is the tail of 北京, not a word of its own.
-            let fresh = english.embeddedWords(in: characters, from: position)
-                .filter { candidate in
-                    let letters = String(
-                        characters[position..<(position + candidate.length)]
+        for position in 0..<characters.count {
+            for (end, entry) in dictionary.matches(
+                in: characters,
+                from: position,
+                maxEntriesPerKey: 6
+            ) {
+                edges.append(
+                    LatticeEdge(
+                        start: position,
+                        end: end,
+                        text: entry.text,
+                        pinyin: entry.displayPinyin,
+                        reading: .lexicon(weight: entry.weight, form: .full)
                     )
-                    if english.curatedCompletion(for: letters) != nil { return true }
-                    if english.exactDisplay(for: letters) != nil { return true }
-                    return !segmenter.segment(letters).isComplete
-                }
-            embeddedByPosition[position] = fresh
-            return fresh
-        }
-        var abbrevTailByPosition: [Int: [LexiconEntry]] = [:]
-        func abbrevTail(from position: Int) -> [LexiconEntry] {
-            if let cached = abbrevTailByPosition[position] { return cached }
-            let remaining = characters.count - position
-            let fresh: [LexiconEntry]
-            if allowAbbreviationTails, position > 0, remaining >= 1, remaining <= 6 {
-                fresh = dictionary.abbreviated(String(characters[position...]), limit: 2)
-            } else {
-                fresh = []
-            }
-            abbrevTailByPosition[position] = fresh
-            return fresh
-        }
-
-        while !beams.isEmpty {
-            var next: [Beam] = []
-            for beam in beams {
-                if beam.position == characters.count {
-                    completed.append(beam)
-                    continue
-                }
-                for (end, entry) in matches(from: beam.position) {
-                    next.append(
-                        Beam(
-                            position: end,
-                            text: appendSegment(entry.text, to: beam.text),
-                            pinyin: beam.pinyin + [entry.displayPinyin],
-                            score: transitionScore(beam, entry, .full),
-                            componentCount: beam.componentCount + 1,
-                            previousWord: entry.text
-                        )
-                    )
-                }
-                for (end, entry, initialsOnly) in codedSegments(from: beam.position) {
-                    next.append(
-                        Beam(
-                            position: end,
-                            text: appendSegment(entry.text, to: beam.text),
-                            pinyin: beam.pinyin + [entry.displayPinyin],
-                            score: transitionScore(beam, entry, initialsOnly ? .initials : .mixed),
-                            componentCount: beam.componentCount + 1,
-                            previousWord: entry.text
-                        )
-                    )
-                }
-                for candidate in embeddedEnglish(from: beam.position) {
-                    let consumed = candidate.length
-                    next.append(
-                        Beam(
-                            position: beam.position + consumed,
-                            text: appendSegment(candidate.display, to: beam.text),
-                            pinyin: beam.pinyin
-                                + [String(characters[beam.position..<(beam.position + consumed)])],
-                            score: beam.score + ScoreModel.latinLogProbability(
-                                .spelledOut,
-                                logTotalWeight: logTotal
-                            ),
-                            componentCount: beam.componentCount + 1,
-                            previousWord: candidate.display
-                        )
-                    )
-                }
-                if let completion = englishTail(from: beam.position) {
-                    next.append(
-                        Beam(
-                            position: characters.count,
-                            text: appendSegment(completion.word, to: beam.text),
-                            pinyin: beam.pinyin + [String(characters[beam.position...])],
-                            // A curated term is a confident expansion; a guess
-                            // from the system word list is not, and must not
-                            // outbid a real Chinese reading of the same tail.
-                            score: beam.score + ScoreModel.latinLogProbability(
-                                completion.curated ? .curatedExpansion : .guessedExpansion,
-                                logTotalWeight: logTotal
-                            ),
-                            componentCount: beam.componentCount + 1,
-                            previousWord: completion.word
-                        )
-                    )
-                }
-                for entry in abbrevTail(from: beam.position) {
-                    let tailLength = characters.count - beam.position
-                    next.append(
-                        Beam(
-                            position: characters.count,
-                            text: appendSegment(entry.text, to: beam.text),
-                            pinyin: beam.pinyin + [entry.displayPinyin],
-                            score: transitionScore(beam, entry, .initials),
-                            componentCount: beam.componentCount + 1,
-                            previousWord: entry.text
-                        )
-                    )
-                }
-            }
-            // Prune per end position, never globally. Scores are sums of
-            // log-probabilities, so a path that has consumed less of the input
-            // always outscores one that has consumed more; a single global
-            // cutoff therefore throws away well-advanced paths and keeps
-            // whichever prefix happens to be shortest. Comparing only paths
-            // that have reached the same position is the standard lattice
-            // formulation and is what keeps genuine alternatives — 大学 beside
-            // 东西 — alive to be re-ranked later.
-            var byPosition: [Int: [Beam]] = [:]
-            for beam in next {
-                byPosition[beam.position, default: []].append(beam)
-            }
-            beams = byPosition.values.flatMap {
-                $0.sorted { $0.score > $1.score }.prefix(12)
-            }
-        }
-
-        var seen: Set<String> = []
-        return completed
-            .filter { $0.componentCount > 1 && seen.insert($0.text).inserted }
-            .sorted { $0.score > $1.score }
-            .prefix(limit)
-            .map {
-                Candidate(
-                    text: $0.text,
-                    pinyin: $0.pinyin.joined(separator: " "),
-                    source: .sentence,
-                    consumed: key.count,
-                    score: $0.score
                 )
             }
+
+            guard !keyIsPurePinyin else { continue }
+            let available = characters.count - position
+
+            // A word typed as initials only (dx → 大学), or with its first
+            // syllable spelled out and the rest reduced (meiy → 没有).
+            if available >= 2 {
+                for length in 2...min(available, 9) {
+                    let code = String(characters[position..<(position + length)])
+                    if length <= 5 {
+                        for entry in dictionary.abbreviated(code, limit: 3) {
+                            edges.append(
+                                LatticeEdge(
+                                    start: position,
+                                    end: position + length,
+                                    text: entry.text,
+                                    pinyin: entry.displayPinyin,
+                                    reading: .lexicon(weight: entry.weight, form: .initials)
+                                )
+                            )
+                        }
+                    }
+                    if length >= 3 {
+                        for entry in dictionary.mixedCoded(code, limit: 3) {
+                            edges.append(
+                                LatticeEdge(
+                                    start: position,
+                                    end: position + length,
+                                    text: entry.text,
+                                    pinyin: entry.displayPinyin,
+                                    reading: .lexicon(weight: entry.weight, form: .mixed)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // A Latin word spelled out inside the sentence. Runs that are
+            // themselves readable as pinyin belong to Chinese unless they are
+            // curated terms: "jing" is an English word but in 北京还有 it is
+            // the tail of 北京.
+            for candidate in english.embeddedWords(in: characters, from: position) {
+                let letters = String(characters[position..<(position + candidate.length)])
+                let isCurated = english.curatedCompletion(for: letters) != nil
+                    || english.exactDisplay(for: letters) != nil
+                guard isCurated || !segmenter.segment(letters).isComplete else { continue }
+                edges.append(
+                    LatticeEdge(
+                        start: position,
+                        end: position + candidate.length,
+                        text: candidate.display,
+                        pinyin: letters,
+                        reading: .latin(.spelledOut)
+                    )
+                )
+            }
+
+            // A Latin word the user began and did not finish, closing the
+            // buffer (vs → VS Code).
+            if position > 0 {
+                let suffix = String(characters[position...])
+                let completion: (word: String, curated: Bool)?
+                if segmenter.segment(suffix).isComplete {
+                    completion = english.curatedCompletion(for: suffix).map { ($0, true) }
+                } else if let curated = english.curatedCompletion(for: suffix) {
+                    completion = (curated, true)
+                } else if suffix.count >= 4 {
+                    completion = english.bestCompletion(for: suffix).map { ($0, false) }
+                } else {
+                    completion = nil
+                }
+                if let completion {
+                    edges.append(
+                        LatticeEdge(
+                            start: position,
+                            end: characters.count,
+                            text: completion.word,
+                            pinyin: suffix,
+                            reading: .latin(completion.curated ? .curatedExpansion : .guessedExpansion)
+                        )
+                    )
+                }
+            }
+        }
+
+        let paths = LatticeDecoder.nBest(
+            edges: edges,
+            inputLength: characters.count,
+            limit: limit,
+            logTotalWeight: logTotal,
+            transition: { [dictionary] previous, next in
+                dictionary.transition(from: previous, to: next)
+            }
+        )
+
+        return paths.map { path in
+            Candidate(
+                text: spaced(path.text, words: path.pinyin.count),
+                pinyin: path.pinyin.joined(separator: " "),
+                source: .sentence,
+                consumed: key.count,
+                score: path.score
+            )
+        }
+    }
+
+    /// Chinese and Latin runs get a space between them, matching the
+    /// auto-spacing users see on commit.
+    private func spaced(_ text: String, words: Int) -> String {
+        var output = ""
+        for character in text {
+            if let previous = output.last {
+                let previousLatin = previous.isASCII && previous.isLetter
+                let currentLatin = character.isASCII && character.isLetter
+                if previousLatin != currentLatin, previous != " ", character != " " {
+                    output.append(" ")
+                }
+            }
+            output.append(character)
+        }
+        return output
     }
 
     private func appendSegment(_ segment: String, to existing: String) -> String {

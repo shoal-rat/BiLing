@@ -28,7 +28,7 @@ import Foundation
 public enum ScoreModel {
     /// How the user typed a word. These are usage priors, not measured rates;
     /// what matters is their order and rough spacing.
-    public enum TypingForm {
+    public enum TypingForm: Sendable {
         /// Every syllable spelled out: `beijing` → 北京.
         case full
         /// First syllable spelled out, the rest as initials: `meiy` → 没有.
@@ -51,7 +51,7 @@ public enum ScoreModel {
     /// likely as a moderately common word, a curated expansion less so, and a
     /// guess from the system dictionary rare enough that it cannot outbid a
     /// genuine Chinese reading of the same letters.
-    public enum LatinEvidence {
+    public enum LatinEvidence: Sendable {
         /// The letters spell a known term exactly (`economics`, `github`).
         case spelledOut
         /// Expanded from a curated table (`vs` → VS Code).
