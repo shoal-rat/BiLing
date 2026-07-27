@@ -53,7 +53,7 @@ public enum CandidateBlender {
         // With committed context the model has real evidence and gets a strong
         // vote. Cold, its preference is mostly style (辣鸡 over 垃圾), so corpus
         // frequency keeps the upper hand.
-        let languageModelWeight = hasContext ? 0.42 : 0.25
+        let languageModelWeight = ScoreModel.languageModelWeight(hasContext: hasContext)
         var byText = Dictionary(
             candidates.map { ($0.text, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -61,12 +61,10 @@ public enum CandidateBlender {
         var rescored: [Candidate] = []
         for text in orderedCandidates {
             guard var candidate = byText.removeValue(forKey: text) else { continue }
+            // Two models of the same candidate, combined log-linearly. No
+            // per-source bonus: where a candidate came from is already priced
+            // into its lexicon log-probability.
             candidate.score += (scores[text] ?? 0) * languageModelWeight
-            if candidate.source == .learned {
-                candidate.score += 4
-            } else if candidate.source == .system {
-                candidate.score += 1
-            }
             rescored.append(candidate)
         }
         rescored.sort { $0.score > $1.score }

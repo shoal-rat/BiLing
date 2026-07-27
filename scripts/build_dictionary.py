@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import re
 import sqlite3
 import unicodedata
@@ -50,11 +51,19 @@ def rows(path: Path):
             continue
         key = "".join(syllables)
         abbrev = "".join(syllable[0] for syllable in syllables)
+        # "First syllable in full, the rest as initials" — how people actually
+        # abbreviate mid-sentence (没有 → meiy, 空调 → kongt, 学的 → xued).
+        # Single-syllable words would only duplicate `key`, so they store "".
+        mixed = (
+            syllables[0] + "".join(syllable[0] for syllable in syllables[1:])
+            if len(syllables) > 1
+            else ""
+        )
         try:
             weight = float(fields[2]) if len(fields) > 2 and fields[2] else 1.0
         except ValueError:
             weight = 1.0
-        yield key, text, max(0.0, weight), " ".join(syllables), abbrev
+        yield key, text, max(0.0, weight), " ".join(syllables), abbrev, mixed
 
 
 def parse_source(value: str) -> tuple[Path, float]:
@@ -84,11 +93,13 @@ def prepare_database(path: Path) -> sqlite3.Connection:
             weight REAL NOT NULL,
             pinyin TEXT NOT NULL,
             abbrev TEXT NOT NULL,
+            mixed TEXT NOT NULL,
             PRIMARY KEY (key, text)
         ) WITHOUT ROWID;
-        -- (abbrev, weight) lets `WHERE abbrev = ? ORDER BY weight DESC`
-        -- run as a backwards index scan with no sort step.
+        -- (code, weight) lets `WHERE code = ? ORDER BY weight DESC` run as a
+        -- backwards index scan with no sort step.
         CREATE INDEX entries_abbrev ON entries(abbrev, weight);
+        CREATE INDEX entries_mixed ON entries(mixed, weight) WHERE mixed <> '';
         CREATE TABLE metadata (
             name TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -112,11 +123,13 @@ def main() -> None:
     sources = [parse_source(value) for value in args.source]
     database = prepare_database(args.output)
     upsert = """
-        INSERT INTO entries(key, text, weight, pinyin, abbrev)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO entries(key, text, weight, pinyin, abbrev, mixed)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(key, text) DO UPDATE SET
             weight = excluded.weight,
             pinyin = excluded.pinyin,
+            abbrev = excluded.abbrev,
+            mixed = excluded.mixed,
             abbrev = excluded.abbrev
         WHERE excluded.weight > entries.weight;
     """
@@ -126,8 +139,8 @@ def main() -> None:
         if not source.is_file():
             raise SystemExit(f"Missing dictionary source: {source}")
         batch: list[tuple[str, str, float, str]] = []
-        for key, text, weight, pinyin, abbrev in rows(source):
-            batch.append((key, text, weight * boost, pinyin, abbrev))
+        for key, text, weight, pinyin, abbrev, mixed in rows(source):
+            batch.append((key, text, weight * boost, pinyin, abbrev, mixed))
             if len(batch) == 20_000:
                 database.executemany(upsert, batch)
                 database.commit()
@@ -143,11 +156,36 @@ def main() -> None:
         "INSERT INTO metadata(name, value) VALUES (?, ?);",
         [
             ("entry_count", str(count)),
+            # log of the summed corpus weight: the normaliser that turns a raw
+            # weight into a unigram log-probability, and therefore the cost of
+            # introducing one more segment into a segmentation.
+            (
+                "log_max_weight",
+                repr(
+                    math.log(
+                        database.execute(
+                            "SELECT MAX(weight) FROM entries;"
+                        ).fetchone()[0]
+                        or 1.0
+                    )
+                ),
+            ),
+            (
+                "log_total_weight",
+                repr(
+                    math.log(
+                        database.execute(
+                            "SELECT SUM(weight) FROM entries;"
+                        ).fetchone()[0]
+                        or 1.0
+                    )
+                ),
+            ),
             (
                 "sources",
                 ";".join(f"{path.name}:{boost:g}" for path, boost in sources),
             ),
-            ("format_version", "2"),
+            ("format_version", "3"),
         ],
     )
     database.execute("ANALYZE;")

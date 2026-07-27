@@ -18,15 +18,22 @@ var adapterURL = ModelLocator.adapterURL()
 var context = ""
 var pinyin: String?
 var useXPC = false
+var noContext = false
 var engineOnly = false
+var evaluateCorpus: URL?
 var exportDirectory: String?
 while !arguments.isEmpty {
     let item = arguments.removeFirst()
     switch item {
     case "--xpc":
         useXPC = true
+    case "--no-context":
+        noContext = true
     case "--engine-only":
         engineOnly = true
+    case "--evaluate":
+        guard !arguments.isEmpty else { usage() }
+        evaluateCorpus = URL(fileURLWithPath: arguments.removeFirst())
     case "--model":
         guard !arguments.isEmpty else { usage() }
         modelURL = URL(fileURLWithPath: arguments.removeFirst())
@@ -51,6 +58,19 @@ if let exportDirectory {
         exit(count > 0 ? 0 : 1)
     } catch {
         FileHandle.standardError.write(Data("Export failed: \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+}
+
+EnglishLexicon.shared.warm()
+
+if let evaluateCorpus {
+    do {
+        let ranker = engineOnly ? nil : try QwenRanker(modelURL: modelURL)
+        try Evaluate.run(corpus: evaluateCorpus, ranker: ranker, useContext: !noContext)
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
         exit(1)
     }
 }

@@ -108,6 +108,61 @@ public final class EnglishLexicon: @unchecked Sendable {
         curatedByKey[key]
     }
 
+    /// Loads the system word list synchronously. The input method never calls
+    /// this — it would stall a keystroke — but one-shot tools and tests need
+    /// the list present before their single query.
+    public func warm() {
+        lock.lock()
+        let alreadyLoaded = systemWords != nil
+        if !alreadyLoaded { loadStarted = true }
+        lock.unlock()
+        guard !alreadyLoaded else { return }
+        let loaded = Self.loadSystemWords()
+        lock.lock()
+        systemWords = loaded
+        lock.unlock()
+    }
+
+    /// Whole English words that occupy `characters[position...]` starting at
+    /// exactly that offset, longest first, in display form.
+    ///
+    /// This is what lets an English word sit *inside* a pinyin sentence
+    /// (`economicslajizhuanye` → economics + 垃圾专业) rather than only at the
+    /// end. Matches are capped at four letters and up: shorter runs collide
+    /// constantly with real pinyin syllables (`an`, `hai`, `men`) and would
+    /// flood the lattice with noise.
+    /// Returns the display form together with how many input characters it
+    /// consumed. These differ whenever a curated term expands (`vscode` is six
+    /// characters but displays as "VS Code"), and confusing the two walks off
+    /// the end of the buffer.
+    public func embeddedWords(
+        in characters: [Character],
+        from position: Int,
+        limit: Int = 2
+    ) -> [(display: String, length: Int)] {
+        let available = characters.count - position
+        guard available >= 4 else { return [] }
+        let words = snapshotSystemWords()
+        if words == nil { beginLoadingIfNeeded() }
+        var output: [(display: String, length: Int)] = []
+        var length = min(available, 16)
+        while length >= 4, output.count < limit {
+            let candidate = String(characters[position..<(position + length)])
+            if let display = curatedByKey[candidate] {
+                output.append((display, length))
+            } else if let words, contains(candidate, in: words) {
+                output.append((candidate, length))
+            }
+            length -= 1
+        }
+        return output
+    }
+
+    private func contains(_ word: String, in words: [String]) -> Bool {
+        let index = lowerBound(of: word, in: words)
+        return index < words.count && words[index] == word
+    }
+
     /// Ranked completions for `prefix`: curated entries first (shortest key
     /// first), then the shortest system words. Empty below two letters.
     public func completions(for prefix: String, limit: Int) -> [String] {

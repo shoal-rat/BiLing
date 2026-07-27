@@ -91,22 +91,28 @@ private func makeEngine() throws -> PinyinEngine {
     #expect(mixedTail.contains(where: { $0.text == "北京还有" }))
 }
 
-@Test func blenderKeepsFrequencyAdvantageWithoutContext() {
-    let frequent = Candidate(text: "垃圾", pinyin: "la ji", source: .sentence, consumed: 4, score: 10)
-    let slang = Candidate(text: "辣鸡", pinyin: "la ji", source: .sentence, consumed: 4, score: 9.4)
-    let scores = ["垃圾": -19.5, "辣鸡": -17.4]
-    let cold = CandidateBlender.blend(
+@Test func contextGivesTheLanguageModelMoreAuthority() {
+    // The property that matters is relative, not a magic threshold: a lexicon
+    // preference that survives a cold model must be overridable once the model
+    // has real context to go on.
+    let cold = ScoreModel.languageModelWeight(hasContext: false)
+    let warm = ScoreModel.languageModelWeight(hasContext: true)
+    #expect(cold > 0 && cold < warm)
+
+    // Two readings of one key: the first is likelier in the corpus, the second
+    // is likelier under the model. Scores are on the shared log-probability
+    // scale used everywhere in the engine.
+    let frequent = Candidate(text: "垃圾", pinyin: "la ji", source: .sentence, consumed: 4, score: -9.0)
+    let slang = Candidate(text: "辣鸡", pinyin: "la ji", source: .sentence, consumed: 4, score: -11.0)
+    let lm = ["垃圾": -19.5, "辣鸡": -17.4]
+    let gap = frequent.score - slang.score          // 2.0 in the corpus
+    let pull = (lm["辣鸡"]! - lm["垃圾"]!) * warm    // what the model can move
+
+    let blended = CandidateBlender.blend(
         [frequent, slang],
         orderedCandidates: ["辣鸡", "垃圾"],
-        scores: scores,
-        hasContext: false
-    )
-    #expect(cold.first?.text == "垃圾")
-    let contextual = CandidateBlender.blend(
-        [frequent, slang],
-        orderedCandidates: ["辣鸡", "垃圾"],
-        scores: scores,
+        scores: lm,
         hasContext: true
     )
-    #expect(contextual.first?.text == "辣鸡")
+    #expect(blended.first?.text == (pull > gap ? "辣鸡" : "垃圾"))
 }

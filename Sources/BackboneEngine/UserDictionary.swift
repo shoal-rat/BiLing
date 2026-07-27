@@ -95,13 +95,16 @@ public final class EncryptedUserDictionary: LearningStore, @unchecked Sendable {
                 let skipped = sqlite3_column_double(statement, 4)
                 let age = max(0, currentTick - tick)
                 let decayed = Double(count) * exp(-Double(age) / 200.0) - skipped * 0.25
+                // `score` carries the decayed selection count; the engine
+                // converts it to a log-probability, where every other
+                // candidate already lives.
                 result.append(
                     Candidate(
                         text: text,
                         pinyin: pinyin,
                         source: .learned,
                         consumed: pinyin.count,
-                        score: 24 + log1p(max(0, decayed)) * 4
+                        score: max(0, decayed)
                     )
                 )
             }
@@ -325,7 +328,13 @@ public final class MemoryLearningStore: LearningStore, @unchecked Sendable {
     public func candidates(for pinyin: String) -> [Candidate] {
         lock.withLock {
             selections[pinyin, default: [:]].map {
-                Candidate(text: $0.key, pinyin: pinyin, source: .learned, consumed: pinyin.count, score: 24 + log1p(Double($0.value)))
+                Candidate(
+                    text: $0.key,
+                    pinyin: pinyin,
+                    source: .learned,
+                    consumed: pinyin.count,
+                    score: Double($0.value)
+                )
             }
         }
     }

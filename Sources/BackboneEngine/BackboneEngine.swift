@@ -38,22 +38,32 @@ public final class PinyinEngine: @unchecked Sendable {
             merged[candidate.text] = candidate
         }
 
-        for learned in learningStore.candidates(for: key) { add(learned) }
+        let logTotal = dictionary.logTotalWeight
+        for var learned in learningStore.candidates(for: key) {
+            learned.score = ScoreModel.learnedLogProbability(
+                decayedCount: learned.score,
+                logMaxWeight: dictionary.logMaxWeight,
+                logTotalWeight: logTotal
+            )
+            add(learned)
+        }
 
         let exactEntries = dictionary.exact(key, limit: 240)
         for entry in exactEntries {
-            let wordLengthBonus = log1p(Double(entry.text.count)) * 1.8
-            let syllableCount = entry.displayPinyin.split(separator: " ").count
-            let exactPhraseBonus = entry.text.count > 1
-                ? 7 + min(9, Double(syllableCount) * 1.5)
-                : 0
+            // One word covering the whole key, spelled out in full: the single
+            // most likely story there is. No length bonus is needed — a rival
+            // multi-word stitch pays the segment cost for each extra word.
             add(
                 Candidate(
                     text: entry.text,
                     pinyin: entry.displayPinyin,
                     source: .system,
                     consumed: key.count,
-                    score: log1p(max(0, entry.weight)) + wordLengthBonus + exactPhraseBonus
+                    score: ScoreModel.segmentLogProbability(
+                        weight: entry.weight,
+                        logTotalWeight: logTotal,
+                        form: .full
+                    )
                 )
             )
         }
@@ -72,7 +82,26 @@ public final class PinyinEngine: @unchecked Sendable {
                         pinyin: entry.displayPinyin,
                         source: .abbreviation,
                         consumed: key.count,
-                        score: log1p(max(0, entry.weight)) + (mode == .chinesePrimary ? -2 : 10)
+                        score: ScoreModel.segmentLogProbability(
+                            weight: entry.weight,
+                            logTotalWeight: logTotal,
+                            form: .initials
+                        )
+                    )
+                )
+            }
+            for entry in dictionary.mixedCoded(key, limit: 6) {
+                add(
+                    Candidate(
+                        text: entry.text,
+                        pinyin: entry.displayPinyin,
+                        source: .abbreviation,
+                        consumed: key.count,
+                        score: ScoreModel.segmentLogProbability(
+                            weight: entry.weight,
+                            logTotalWeight: logTotal,
+                            form: .mixed
+                        )
                     )
                 )
             }
@@ -84,14 +113,12 @@ public final class PinyinEngine: @unchecked Sendable {
         // nonsense syllable stitches like 哦喷爱, because no real word owns
         // that key.
         if let display = english.exactDisplay(for: key) {
-            let score: Double
-            if mode != .chinesePrimary {
-                score = 26
-            } else if exactEntries.isEmpty {
-                score = 17
-            } else {
-                score = 9
-            }
+            // The letters spell a known term exactly. That is strong evidence
+            // unless they also spell valid pinyin, where Chinese keeps priority.
+            let score = ScoreModel.latinLogProbability(
+                mode == .chinesePrimary ? .curatedExpansion : .spelledOut,
+                logTotalWeight: logTotal
+            )
             add(
                 Candidate(
                     text: display,
@@ -111,7 +138,11 @@ public final class PinyinEngine: @unchecked Sendable {
                         pinyin: key,
                         source: .english,
                         consumed: key.count,
-                        score: (mode == .englishPrimary ? 22 : 7) - Double(rank)
+                        // Later completions are progressively weaker guesses.
+                        score: ScoreModel.latinLogProbability(
+                            .curatedExpansion,
+                            logTotalWeight: logTotal
+                        ) + log(1.0 / Double(rank + 1))
                     )
                 )
             }
@@ -123,7 +154,9 @@ public final class PinyinEngine: @unchecked Sendable {
                 pinyin: key,
                 source: .literal,
                 consumed: key.count,
-                score: mode == .literal ? 100 : (mode == .englishPrimary ? 18 : -20)
+                score: mode == .literal
+                    ? ScoreModel.literalIntended
+                    : ScoreModel.literalLogProbability(length: key.count)
             )
         )
 
@@ -156,6 +189,7 @@ public final class PinyinEngine: @unchecked Sendable {
     }
 
     private func sentenceCandidates(key: String, limit: Int) -> [Candidate] {
+        let logTotal = dictionary.logTotalWeight
         let characters = Array(key)
         guard characters.count > 1 else { return [] }
         var beams = [Beam(position: 0, text: "", pinyin: [], score: 0, componentCount: 0)]
@@ -173,20 +207,91 @@ public final class PinyinEngine: @unchecked Sendable {
         // English (vscode, github, …); otherwise rare system words would leak
         // into ordinary Chinese sentences. Non-pinyin tails get the full list.
         let segmenter = Segmenter(inventory: inventory)
-        var englishTailByPosition: [Int: String?] = [:]
-        func englishTail(from position: Int) -> String? {
+        var englishTailByPosition: [Int: (word: String, curated: Bool)?] = [:]
+        func englishTail(from position: Int) -> (word: String, curated: Bool)? {
             if let cached = englishTailByPosition[position] { return cached }
             let suffix = String(characters[position...])
-            let completion = segmenter.segment(suffix).isComplete
-                ? english.curatedCompletion(for: suffix)
-                : english.bestCompletion(for: suffix)
+            let completion: (word: String, curated: Bool)?
+            if segmenter.segment(suffix).isComplete {
+                // Still valid pinyin, so only a curated word may claim it.
+                completion = english.curatedCompletion(for: suffix).map { ($0, true) }
+            } else if let curated = english.curatedCompletion(for: suffix) {
+                completion = (curated, true)
+            } else if suffix.count >= 4 {
+                // Below four letters the system word list completes noise —
+                // "is" → "ism", "ei" → "eight" — and outbids real Chinese
+                // readings of the same tail.
+                completion = english.bestCompletion(for: suffix).map { ($0, false) }
+            } else {
+                completion = nil
+            }
             englishTailByPosition[position] = completion
             return completion
         }
+        // Abbreviated segments anywhere in the sentence, which is how people
+        // actually type fast: jilin·dx·meiy·kongt = 吉林·大学·没有·空调.
+        // A word may appear as initials only (dx → 大学) or first-syllable-full
+        // then initials (meiy → 没有). Both are gated on the key not parsing as
+        // pinyin, so ordinary input can never be broken up this way.
+        var codedByPosition: [Int: [(Int, LexiconEntry, Bool)]] = [:]
+        func codedSegments(from position: Int) -> [(Int, LexiconEntry, Bool)] {
+            guard !keyIsPurePinyin else { return [] }
+            if let cached = codedByPosition[position] { return cached }
+            var fresh: [(Int, LexiconEntry, Bool)] = []
+            let available = characters.count - position
+            guard available >= 2 else {
+                codedByPosition[position] = []
+                return []
+            }
+            // Initials-only codes are short by construction; mixed codes carry
+            // one spelled-out syllable, so they run longer.
+            for length in 2...min(available, 9) {
+                let code = String(characters[position..<(position + length)])
+                if length <= 5 {
+                    for entry in dictionary.abbreviated(code, limit: 2) {
+                        fresh.append((position + length, entry, true))
+                    }
+                }
+                if length >= 3 {
+                    for entry in dictionary.mixedCoded(code, limit: 2) {
+                        fresh.append((position + length, entry, false))
+                    }
+                }
+            }
+            codedByPosition[position] = fresh
+            return fresh
+        }
+
         // 混合简拼 tail: full pinyin followed by initials (beijinghy →
         // 北京 + 还有). Only when the whole key does NOT parse as pinyin —
         // otherwise fully valid inputs like "fan" would sprout 发+你.
-        let allowAbbreviationTails = !segmenter.segment(key).isComplete
+        let keyIsPurePinyin = segmenter.segment(key).isComplete
+        let allowAbbreviationTails = !keyIsPurePinyin
+
+        // An English word sitting inside the sentence (economicslajizhuanye →
+        // economics + 垃圾专业; wozaipolytechnicxuedeleisi → 我在 + polytechnic
+        // + 学的累死). Gated on the key not parsing as pinyin, so ordinary
+        // Chinese input can never be broken up by an accidental English match
+        // — "shanghai" and "wanting" are both English words and valid pinyin.
+        var embeddedByPosition: [Int: [(display: String, length: Int)]] = [:]
+        func embeddedEnglish(from position: Int) -> [(display: String, length: Int)] {
+            guard !keyIsPurePinyin else { return [] }
+            if let cached = embeddedByPosition[position] { return cached }
+            // A run that is itself readable as pinyin belongs to Chinese
+            // unless it is a curated term: "jing" is in the English word list
+            // but in 北京还有 it is the tail of 北京, not a word of its own.
+            let fresh = english.embeddedWords(in: characters, from: position)
+                .filter { candidate in
+                    let letters = String(
+                        characters[position..<(position + candidate.length)]
+                    )
+                    if english.curatedCompletion(for: letters) != nil { return true }
+                    if english.exactDisplay(for: letters) != nil { return true }
+                    return !segmenter.segment(letters).isComplete
+                }
+            embeddedByPosition[position] = fresh
+            return fresh
+        }
         var abbrevTailByPosition: [Int: [LexiconEntry]] = [:]
         func abbrevTail(from position: Int) -> [LexiconEntry] {
             if let cached = abbrevTailByPosition[position] { return cached }
@@ -209,16 +314,47 @@ public final class PinyinEngine: @unchecked Sendable {
                     continue
                 }
                 for (end, entry) in matches(from: beam.position) {
-                    // Single-letter keys (嗯 n, 呣 m…) stitch valid-looking
-                    // nonsense like 发嗯 for "fan"; tax them so real words win.
-                    let shortKeyPenalty: Double = end - beam.position == 1 ? 8 : 0
                     next.append(
                         Beam(
                             position: end,
                             text: appendSegment(entry.text, to: beam.text),
                             pinyin: beam.pinyin + [entry.displayPinyin],
-                            score: beam.score + log1p(max(0, entry.weight))
-                                + Double(end - beam.position) * 0.35 - shortKeyPenalty,
+                            score: beam.score + ScoreModel.segmentLogProbability(
+                                weight: entry.weight,
+                                logTotalWeight: logTotal,
+                                form: .full
+                            ),
+                            componentCount: beam.componentCount + 1
+                        )
+                    )
+                }
+                for (end, entry, initialsOnly) in codedSegments(from: beam.position) {
+                    next.append(
+                        Beam(
+                            position: end,
+                            text: appendSegment(entry.text, to: beam.text),
+                            pinyin: beam.pinyin + [entry.displayPinyin],
+                            score: beam.score + ScoreModel.segmentLogProbability(
+                                weight: entry.weight,
+                                logTotalWeight: logTotal,
+                                form: initialsOnly ? .initials : .mixed
+                            ),
+                            componentCount: beam.componentCount + 1
+                        )
+                    )
+                }
+                for candidate in embeddedEnglish(from: beam.position) {
+                    let consumed = candidate.length
+                    next.append(
+                        Beam(
+                            position: beam.position + consumed,
+                            text: appendSegment(candidate.display, to: beam.text),
+                            pinyin: beam.pinyin
+                                + [String(characters[beam.position..<(beam.position + consumed)])],
+                            score: beam.score + ScoreModel.latinLogProbability(
+                                .spelledOut,
+                                logTotalWeight: logTotal
+                            ),
                             componentCount: beam.componentCount + 1
                         )
                     )
@@ -227,9 +363,15 @@ public final class PinyinEngine: @unchecked Sendable {
                     next.append(
                         Beam(
                             position: characters.count,
-                            text: appendSegment(completion, to: beam.text),
+                            text: appendSegment(completion.word, to: beam.text),
                             pinyin: beam.pinyin + [String(characters[beam.position...])],
-                            score: beam.score + 10,
+                            // A curated term is a confident expansion; a guess
+                            // from the system word list is not, and must not
+                            // outbid a real Chinese reading of the same tail.
+                            score: beam.score + ScoreModel.latinLogProbability(
+                                completion.curated ? .curatedExpansion : .guessedExpansion,
+                                logTotalWeight: logTotal
+                            ),
                             componentCount: beam.componentCount + 1
                         )
                     )
@@ -241,26 +383,23 @@ public final class PinyinEngine: @unchecked Sendable {
                             position: characters.count,
                             text: appendSegment(entry.text, to: beam.text),
                             pinyin: beam.pinyin + [entry.displayPinyin],
-                            score: beam.score + log1p(max(0, entry.weight))
-                                - (tailLength == 1 ? 8 : 2),
+                            score: beam.score + ScoreModel.segmentLogProbability(
+                                weight: entry.weight,
+                                logTotalWeight: logTotal,
+                                form: .initials
+                            ),
                             componentCount: beam.componentCount + 1
                         )
                     )
                 }
             }
-            beams = Array(
-                next.sorted {
-                    let lhs = $0.score / Double(max(1, $0.componentCount))
-                    let rhs = $1.score / Double(max(1, $1.componentCount))
-                    return lhs > rhs
-                }.prefix(64)
-            )
+            beams = Array(next.sorted { $0.score > $1.score }.prefix(64))
         }
 
         var seen: Set<String> = []
         return completed
             .filter { $0.componentCount > 1 && seen.insert($0.text).inserted }
-            .sorted { $0.score / Double($0.componentCount) > $1.score / Double($1.componentCount) }
+            .sorted { $0.score > $1.score }
             .prefix(limit)
             .map {
                 Candidate(
@@ -268,7 +407,7 @@ public final class PinyinEngine: @unchecked Sendable {
                     pinyin: $0.pinyin.joined(separator: " "),
                     source: .sentence,
                     consumed: key.count,
-                    score: $0.score / Double($0.componentCount) + 2
+                    score: $0.score
                 )
             }
     }

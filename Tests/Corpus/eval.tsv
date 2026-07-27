@@ -1,0 +1,99 @@
+# BiLing evaluation corpus
+# Columns: category <TAB> context <TAB> pinyin <TAB> expected
+# `context` is the text already before the caret ("-" when empty).
+# Lines beginning with # are comments.
+#
+# Every expected string is the reading a human would intend for that key in
+# that context. Spacing at Chinese/Latin boundaries is normalised away before
+# comparison, so "economics 垃圾专业" and "economics垃圾专业" both count.
+
+# --- sentence composition: phrases no dictionary contains -------------------
+sentence	-	jilindaxuelajixuexiao	吉林大学垃圾学校
+sentence	-	jilindaxuemeiyoukongtiao	吉林大学没有空调
+sentence	-	jintiantianqizhenbucuo	今天天气真不错
+sentence	-	womenmingtianzaikaihui	我们明天再开会
+sentence	-	zhegewentiyihoujiejue	这个问题以后解决
+sentence	-	qingbawenjianfagelingdao	请把文件发给领导
+sentence	-	shitangdefanbutaihaochi	食堂的饭不太好吃
+sentence	-	xuexiaodesushetaijile	学校的宿舍太挤了
+sentence	-	zhebenshuxiedefeichanghao	这本书写得非常好
+sentence	-	womingtianyaoqubeijing	我明天要去北京
+
+# --- mixed Chinese-English: an English word inside a Chinese sentence -------
+mixed	-	economicslajizhuanye	economics垃圾专业
+mixed	-	wozaipolytechnicxuedeleisi	我在polytechnic学的累死
+mixed	-	yongvscodexiedaima	用VS Code写代码
+mixed	-	zhegedemoxiedebucuo	这个demo写得不错
+mixed	-	bacodetijiaodaogithub	把code提交到GitHub
+
+# --- abbreviated the way people actually type: full syllables and initials
+# --- mixed freely, word by word (jilin·dx·meiy·kongt) --------------------
+abbrevmix	-	jilindxmeiykongt	吉林大学没有空调
+abbrevmix	-	jilindxlajixuexiao	吉林大学垃圾学校
+abbrevmix	-	wozaipolyxuedleis	我在poly学的累死
+abbrevmix	-	jintiantqzhenbucuo	今天天气真不错
+abbrevmix	-	womenmingtzaikaihui	我们明天再开会
+abbrevmix	-	qingbawenjfagelingd	请把文件发给领导
+
+# --- context disambiguation: same keys, different intended word -------------
+context	他这辈子行医救人，是一位好	yisheng	医生
+context	这句话让我受用	yisheng	一生
+context	爷爷最喜欢下	xiangqi	象棋
+context	我突然	xiangqi	想起
+context	我们在化学课上做	shiyan	实验
+context	他违背了当初的	shiyan	誓言
+context	银行的	lixi	利息
+context	物理学的	lixi	力系
+context	他在厨房里	zuofan	做饭
+context	公司的	huiyi	会议
+context	我对这件事的	huiyi	回忆
+
+# --- abbreviated pinyin (简拼) ----------------------------------------------
+abbrev	-	jldx	吉林大学
+abbrev	-	zgrm	中国人民
+abbrev	-	bjdx	北京大学
+abbrev	-	rmb	人民币
+abbrev	-	beijinghy	北京还有
+
+# --- heteronyms: the typed reading must select the right characters ---------
+heteronym	-	yinhang	银行
+heteronym	-	hangzou	行走
+heteronym	-	zhongyao	重要
+heteronym	-	chongxin	重新
+heteronym	-	changge	唱歌
+heteronym	-	changdu	长度
+heteronym	-	kuaile	快乐
+heteronym	-	yinyue	音乐
+
+# --- everyday words: the ordinary case that must never regress --------------
+common	-	nihao	你好
+common	-	xiexie	谢谢
+common	-	zhongguo	中国
+common	-	shanghai	上海
+common	-	pengyou	朋友
+common	-	gongzuo	工作
+common	-	shijian	时间
+common	-	wenti	问题
+common	-	fangfa	方法
+common	-	xuexi	学习
+common	-	jisuanji	计算机
+common	-	shurufa	输入法
+common	-	renwu	任务
+common	-	jieguo	结果
+
+# --- single syllables: frequency must win, English must not steal them ------
+single	-	fan	饭
+single	-	ai	爱
+single	-	de	的
+single	-	shi	是
+single	-	wo	我
+single	-	ni	你
+single	-	hao	好
+single	-	men	们
+
+# --- Latin keys that are not pinyin: the English word must lead -------------
+latin	-	openai	OpenAI
+latin	-	github	GitHub
+latin	-	vscode	VS Code
+latin	-	claude	Claude
+latin	-	python	Python

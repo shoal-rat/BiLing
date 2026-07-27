@@ -21,9 +21,14 @@ public final class DictTrie: @unchecked Sendable {
     private var exactStatement: OpaquePointer?
     private var prefixProbeStatement: OpaquePointer?
     private var abbrevStatement: OpaquePointer?
+    private var mixedStatement: OpaquePointer?
     private var maxKeyLength = 24
     public private(set) var syllables: Set<String> = []
     public private(set) var entryCount = 0
+    /// log of the summed corpus weight; the unigram normaliser.
+    public private(set) var logTotalWeight: Double = 22.0
+    /// log of the largest corpus weight; anchors personalised entries.
+    public private(set) var logMaxWeight: Double = 16.0
 
     public init(entries: [LexiconEntry]) {
         for entry in entries {
@@ -50,6 +55,18 @@ public final class DictTrie: @unchecked Sendable {
         }
         database = handle
         entryCount = Self.scalarInt(handle, sql: "SELECT COUNT(*) FROM entries;")
+        if let stored = Self.scalarText(
+            handle,
+            sql: "SELECT value FROM metadata WHERE name = 'log_total_weight';"
+        ), let parsed = Double(stored) {
+            logTotalWeight = parsed
+        }
+        if let stored = Self.scalarText(
+            handle,
+            sql: "SELECT value FROM metadata WHERE name = 'log_max_weight';"
+        ), let parsed = Double(stored) {
+            logMaxWeight = parsed
+        }
         maxKeyLength = max(1, Self.scalarInt(handle, sql: "SELECT MAX(LENGTH(key)) FROM entries;"))
         syllables = SyllableInventory.standard.syllables
         sqlite3_prepare_v2(
@@ -78,12 +95,20 @@ public final class DictTrie: @unchecked Sendable {
             &abbrevStatement,
             nil
         )
+        sqlite3_prepare_v2(
+            handle,
+            "SELECT key, text, weight, pinyin FROM entries WHERE mixed = ? AND mixed <> '' ORDER BY weight DESC LIMIT ?;",
+            -1,
+            &mixedStatement,
+            nil
+        )
     }
 
     deinit {
         if let exactStatement { sqlite3_finalize(exactStatement) }
         if let prefixProbeStatement { sqlite3_finalize(prefixProbeStatement) }
         if let abbrevStatement { sqlite3_finalize(abbrevStatement) }
+        if let mixedStatement { sqlite3_finalize(mixedStatement) }
         if let database {
             sqlite3_close(database)
         }
@@ -170,15 +195,30 @@ public final class DictTrie: @unchecked Sendable {
     /// Entries whose syllable initials spell `abbrev` exactly (简拼):
     /// "jldx" → 吉林大学, "hy" → 还有 / 行业 / 会议. Empty on format-1
     /// databases that predate the abbrev column.
+    /// Entries whose syllable initials spell `abbrev` (jldx → 吉林大学).
     public func abbreviated(_ abbrev: String, limit: Int = 8) -> [LexiconEntry] {
+        coded(abbrev, statement: abbrevStatement, limit: limit)
+    }
+
+    /// Entries written first-syllable-in-full then initials (meiy → 没有,
+    /// kongt → 空调) — the way people abbreviate in the middle of a sentence.
+    public func mixedCoded(_ code: String, limit: Int = 4) -> [LexiconEntry] {
+        coded(code, statement: mixedStatement, limit: limit)
+    }
+
+    private func coded(
+        _ code: String,
+        statement candidateStatement: OpaquePointer?,
+        limit: Int
+    ) -> [LexiconEntry] {
         guard database != nil else { return [] }
         return databaseQueue.sync {
-            guard let statement = abbrevStatement else { return [] }
+            guard let statement = candidateStatement else { return [] }
             defer {
                 sqlite3_reset(statement)
                 sqlite3_clear_bindings(statement)
             }
-            sqlite3_bind_text(statement, 1, abbrev, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 1, code, -1, SQLITE_TRANSIENT)
             sqlite3_bind_int(statement, 2, Int32(limit))
             var result: [LexiconEntry] = []
             while sqlite3_step(statement) == SQLITE_ROW {
@@ -271,6 +311,15 @@ public final class DictTrie: @unchecked Sendable {
     private static func columnText(_ statement: OpaquePointer, index: Int32) -> String? {
         guard let text = sqlite3_column_text(statement, index) else { return nil }
         return String(cString: text)
+    }
+
+    private static func scalarText(_ database: OpaquePointer, sql: String) -> String? {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              let statement else { return nil }
+        return columnText(statement, index: 0)
     }
 
     private static func scalarInt(_ database: OpaquePointer, sql: String) -> Int {
