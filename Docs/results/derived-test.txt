@@ -1,19 +1,17 @@
-BiLing evaluation — derived corpus (Leipzig zho_news_2020_10K round-trip)
-Apple M5 / macOS 26.5 / Qwen3-0.6B-Base Q4_K_M
-Parameters tuned on DEV only; TEST run once.
+BiLing — derived corpus, held-out TEST (parameters tuned on dev only)
 
-=== TEST: lexicon only ===
-full n=412  top1  39.6%  top5  56.6%  cover  63.8%  MRR 0.473  median    5.9 ms  p95   16.9 ms
-abbrev n=310  top1  13.5%  top5  21.0%  cover  24.8%  MRR 0.171  median   10.9 ms  p95   35.1 ms
-abbrev-heavy n=402  top1   7.0%  top5  11.9%  cover  14.7%  MRR 0.092  median    6.1 ms  p95   20.6 ms
-full-ctx n=401  top1  56.4%  top5  70.3%  cover  72.8%  MRR 0.625  median    2.0 ms  p95    5.2 ms
-abbrev-ctx n=236  top1  28.0%  top5  38.6%  cover  40.3%  MRR 0.324  median    3.2 ms  p95   10.8 ms
-OVERALL n=1761 top1  29.8%  top5  40.8%  cover  44.6%  MRR 0.347  median    4.7 ms  p95   21.3 ms
+=== lexicon only ===
+full n=412  top1  39.6%  top5  57.5%  cover  65.5%  MRR 0.477  median    7.7 ms  p95   24.1 ms
+abbrev n=310  top1  13.2%  top5  21.3%  cover  25.5%  MRR 0.169  median   13.7 ms  p95   46.2 ms
+abbrev-heavy n=402  top1   7.2%  top5  11.9%  cover  14.9%  MRR 0.094  median    7.1 ms  p95   24.5 ms
+full-ctx n=401  top1  56.9%  top5  70.8%  cover  74.3%  MRR 0.630  median    2.5 ms  p95    6.9 ms
+abbrev-ctx n=236  top1  28.0%  top5  39.0%  cover  40.7%  MRR 0.324  median    3.7 ms  p95   13.7 ms
+OVERALL n=1761 top1  29.9%  top5  41.3%  cover  45.6%  MRR 0.350  median    5.8 ms  p95   27.1 ms
 
-=== TEST: full system ===
-full n=412  top1  48.8%  top5  60.4%  cover  63.8%  MRR 0.537  median   55.6 ms  p95   97.5 ms
-abbrev n=310  top1  19.4%  top5  24.2%  cover  24.8%  MRR 0.211  median   54.7 ms  p95  109.1 ms
-abbrev-heavy n=402  top1   9.7%  top5  13.7%  cover  14.7%  MRR 0.111  median   46.8 ms  p95   91.6 ms
-full-ctx n=401  top1  64.1%  top5  71.8%  cover  72.8%  MRR 0.674  median   43.0 ms  p95   57.3 ms
-abbrev-ctx n=236  top1  36.9%  top5  39.4%  cover  40.3%  MRR 0.380  median   37.7 ms  p95   55.2 ms
-OVERALL n=1761 top1  36.6%  top5  43.2%  cover  44.6%  MRR 0.393  median   46.8 ms  p95   93.3 ms
+=== full system ===
+full n=412  top1  50.0%  top5  62.4%  cover  65.5%  MRR 0.551  median   50.2 ms  p95   93.2 ms
+abbrev n=310  top1  19.4%  top5  24.5%  cover  25.5%  MRR 0.213  median   50.7 ms  p95  104.5 ms
+abbrev-heavy n=402  top1   9.5%  top5  13.2%  cover  14.9%  MRR 0.110  median   41.5 ms  p95   83.5 ms
+full-ctx n=401  top1  65.1%  top5  73.3%  cover  74.3%  MRR 0.686  median   37.3 ms  p95   51.0 ms
+abbrev-ctx n=236  top1  36.9%  top5  40.3%  cover  40.7%  MRR 0.383  median   32.9 ms  p95   49.3 ms
+OVERALL n=1761 top1  37.0%  top5  44.0%  cover  45.6%  MRR 0.399  median   41.9 ms  p95   89.1 ms

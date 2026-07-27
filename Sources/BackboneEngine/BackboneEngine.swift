@@ -214,7 +214,13 @@ public final class PinyinEngine: @unchecked Sendable {
         var matchesByPosition: [Int: [(Int, LexiconEntry)]] = [:]
         func matches(from position: Int) -> [(Int, LexiconEntry)] {
             if let cached = matchesByPosition[position] { return cached }
-            let fresh = dictionary.matches(in: characters, from: position, maxEntriesPerKey: 3)
+            // Six homophones per key rather than three. An oracle pass over
+            // the lexicon showed the correct word is present 98.5% of the time
+            // but the search was only allowed to look at three, so fan-in — not
+            // the lexicon — set the coverage ceiling. Six is where the measured
+            // curve flattens: +0.7 coverage for +0.7 ms, while ten and twelve
+            // buy almost nothing more.
+            let fresh = dictionary.matches(in: characters, from: position, maxEntriesPerKey: 6)
             matchesByPosition[position] = fresh
             return fresh
         }

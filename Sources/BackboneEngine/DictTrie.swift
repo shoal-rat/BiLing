@@ -311,9 +311,17 @@ public final class DictTrie: @unchecked Sendable {
         let upper = min(characters.count, start + maxKeyLength)
         for cursor in start..<upper {
             prefix.append(characters[cursor])
-            guard hasKeyPrefix(prefix) else { break }
-            for entry in exact(prefix, limit: maxEntriesPerKey) {
-                output.append((cursor + 1, entry))
+            let entries = exact(prefix, limit: maxEntriesPerKey)
+            if entries.isEmpty {
+                // Only pay for the range probe when there is nothing to return.
+                // Asking "does any key start with this?" before every lookup
+                // doubled the statement dispatches for the common case, where
+                // the lookup itself would have answered.
+                if !hasKeyPrefix(prefix) { break }
+            } else {
+                for entry in entries {
+                    output.append((cursor + 1, entry))
+                }
             }
         }
         return output
