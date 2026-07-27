@@ -186,6 +186,9 @@ public final class PinyinEngine: @unchecked Sendable {
         var pinyin: [String]
         var score: Double
         var componentCount: Int
+        /// The word this path ended on, so the next extension can be scored
+        /// conditionally rather than in isolation.
+        var previousWord: String = DictTrie.sentenceStart
     }
 
     private func sentenceCandidates(key: String, limit: Int) -> [Candidate] {
@@ -193,6 +196,18 @@ public final class PinyinEngine: @unchecked Sendable {
         let characters = Array(key)
         guard characters.count > 1 else { return [] }
         var beams = [Beam(position: 0, text: "", pinyin: [], score: 0, componentCount: 0)]
+        func transitionScore(
+            _ beam: Beam,
+            _ entry: LexiconEntry,
+            _ form: ScoreModel.TypingForm
+        ) -> Double {
+            beam.score + ScoreModel.transitionLogProbability(
+                weight: entry.weight,
+                logTotalWeight: logTotal,
+                conditional: dictionary.transition(from: beam.previousWord, to: entry.text),
+                form: form
+            )
+        }
         var completed: [Beam] = []
         // Matches depend only on the start position, never on the beam that asks;
         // memoizing them caps lexicon lookups at one batch per input position.
@@ -319,12 +334,9 @@ public final class PinyinEngine: @unchecked Sendable {
                             position: end,
                             text: appendSegment(entry.text, to: beam.text),
                             pinyin: beam.pinyin + [entry.displayPinyin],
-                            score: beam.score + ScoreModel.segmentLogProbability(
-                                weight: entry.weight,
-                                logTotalWeight: logTotal,
-                                form: .full
-                            ),
-                            componentCount: beam.componentCount + 1
+                            score: transitionScore(beam, entry, .full),
+                            componentCount: beam.componentCount + 1,
+                            previousWord: entry.text
                         )
                     )
                 }
@@ -334,12 +346,9 @@ public final class PinyinEngine: @unchecked Sendable {
                             position: end,
                             text: appendSegment(entry.text, to: beam.text),
                             pinyin: beam.pinyin + [entry.displayPinyin],
-                            score: beam.score + ScoreModel.segmentLogProbability(
-                                weight: entry.weight,
-                                logTotalWeight: logTotal,
-                                form: initialsOnly ? .initials : .mixed
-                            ),
-                            componentCount: beam.componentCount + 1
+                            score: transitionScore(beam, entry, initialsOnly ? .initials : .mixed),
+                            componentCount: beam.componentCount + 1,
+                            previousWord: entry.text
                         )
                     )
                 }
@@ -355,7 +364,8 @@ public final class PinyinEngine: @unchecked Sendable {
                                 .spelledOut,
                                 logTotalWeight: logTotal
                             ),
-                            componentCount: beam.componentCount + 1
+                            componentCount: beam.componentCount + 1,
+                            previousWord: candidate.display
                         )
                     )
                 }
@@ -372,7 +382,8 @@ public final class PinyinEngine: @unchecked Sendable {
                                 completion.curated ? .curatedExpansion : .guessedExpansion,
                                 logTotalWeight: logTotal
                             ),
-                            componentCount: beam.componentCount + 1
+                            componentCount: beam.componentCount + 1,
+                            previousWord: completion.word
                         )
                     )
                 }
@@ -383,12 +394,9 @@ public final class PinyinEngine: @unchecked Sendable {
                             position: characters.count,
                             text: appendSegment(entry.text, to: beam.text),
                             pinyin: beam.pinyin + [entry.displayPinyin],
-                            score: beam.score + ScoreModel.segmentLogProbability(
-                                weight: entry.weight,
-                                logTotalWeight: logTotal,
-                                form: .initials
-                            ),
-                            componentCount: beam.componentCount + 1
+                            score: transitionScore(beam, entry, .initials),
+                            componentCount: beam.componentCount + 1,
+                            previousWord: entry.text
                         )
                     )
                 }

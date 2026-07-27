@@ -7,3 +7,7 @@ DerivedData/
 *.xcuserstate
 scripts/__pycache__/
 *.py[cod]
+
+# Derived evaluation corpora are third-party text; regenerate with
+# scripts/build_eval_corpus.py --fetch
+Tests/Corpus/derived-*.tsv

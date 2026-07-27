@@ -29,6 +29,10 @@ public final class DictTrie: @unchecked Sendable {
     public private(set) var logTotalWeight: Double = 22.0
     /// log of the largest corpus weight; anchors personalised entries.
     public private(set) var logMaxWeight: Double = 16.0
+    /// "previous word\u{1}next word" → P(next | previous), held in memory
+    /// because the beam asks thousands of times per keystroke.
+    private var transitions: [String: Double] = [:]
+    public private(set) var transitionCount = 0
 
     public init(entries: [LexiconEntry]) {
         for entry in entries {
@@ -67,6 +71,7 @@ public final class DictTrie: @unchecked Sendable {
         ), let parsed = Double(stored) {
             logMaxWeight = parsed
         }
+        loadTransitions(handle)
         maxKeyLength = max(1, Self.scalarInt(handle, sql: "SELECT MAX(LENGTH(key)) FROM entries;"))
         syllables = SyllableInventory.standard.syllables
         sqlite3_prepare_v2(
@@ -237,6 +242,35 @@ public final class DictTrie: @unchecked Sendable {
             return result
         }
     }
+
+    /// Reads the whole transition table once. It is small (~95k rows) and a
+    /// per-extension SQLite lookup would cost more than the beam itself.
+    private func loadTransitions(_ handle: OpaquePointer) {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(
+            handle,
+            "SELECT prev, next, cond FROM bigrams;",
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK, let statement else { return }
+        transitions.reserveCapacity(120_000)
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let previous = Self.columnText(statement, index: 0),
+                  let next = Self.columnText(statement, index: 1) else { continue }
+            transitions[previous + "\u{1}" + next] = sqlite3_column_double(statement, 2)
+        }
+        transitionCount = transitions.count
+    }
+
+    /// P(next | previous), or 0 when the pair was never observed.
+    public func transition(from previous: String, to next: String) -> Double {
+        transitions[previous + "\u{1}" + next] ?? 0
+    }
+
+    /// Context marker for the first word of a composition.
+    public static let sentenceStart = "\u{2}"
 
     private func hasKeyPrefix(_ prefix: String) -> Bool {
         databaseQueue.sync {

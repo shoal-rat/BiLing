@@ -109,6 +109,10 @@ enum Evaluate {
             guard !items.isEmpty else { return }
             let top1 = items.filter { $0.rank == 1 }.count
             let top5 = items.filter { ($0.rank ?? .max) <= 5 }.count
+            // Coverage separates the two failures that need opposite fixes:
+            // a candidate that was never generated is a search/lexicon problem,
+            // one that was generated but ranked low is a scoring problem.
+            let covered = items.filter { $0.rank != nil }.count
             let mrr = items.reduce(0.0) { $0 + ($1.rank.map { 1.0 / Double($0) } ?? 0) }
                 / Double(items.count)
             let latencies = items.map(\.milliseconds).sorted()
@@ -116,11 +120,12 @@ enum Evaluate {
             let p95 = latencies[min(latencies.count - 1, Int(Double(latencies.count) * 0.95))]
             print(
                 String(
-                    format: "%-12@ n=%-4d top1 %5.1f%%   top5 %5.1f%%   MRR %.3f   median %6.1f ms   p95 %6.1f ms",
+                    format: "%-13@ n=%-4d top1 %5.1f%%  top5 %5.1f%%  cover %5.1f%%  MRR %.3f  median %6.1f ms  p95 %6.1f ms",
                     label as NSString,
                     items.count,
                     100 * Double(top1) / Double(items.count),
                     100 * Double(top5) / Double(items.count),
+                    100 * Double(covered) / Double(items.count),
                     mrr,
                     median,
                     p95

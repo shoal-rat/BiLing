@@ -91,28 +91,30 @@ private func makeEngine() throws -> PinyinEngine {
     #expect(mixedTail.contains(where: { $0.text == "北京还有" }))
 }
 
-@Test func contextGivesTheLanguageModelMoreAuthority() {
-    // The property that matters is relative, not a magic threshold: a lexicon
-    // preference that survives a cold model must be overridable once the model
-    // has real context to go on.
-    let cold = ScoreModel.languageModelWeight(hasContext: false)
-    let warm = ScoreModel.languageModelWeight(hasContext: true)
-    #expect(cold > 0 && cold < warm)
+@Test func theModelIsOnlyTrustedWhereItHasEvidence() {
+    // No conditional structure to judge — a one-character candidate with
+    // nothing before it — means no vote at all, so the lexicon order stands.
+    #expect(ScoreModel.languageModelWeight(hasContext: false, candidateLength: 1) == 0)
+    // Evidence accumulates with context and with candidate length, and the
+    // weight rises monotonically without ever reaching certainty.
+    let cold = ScoreModel.languageModelWeight(hasContext: false, candidateLength: 4)
+    let warm = ScoreModel.languageModelWeight(hasContext: true, candidateLength: 4)
+    let longer = ScoreModel.languageModelWeight(hasContext: true, candidateLength: 9)
+    #expect(cold > 0 && cold < warm && warm < longer && longer < 0.55)
+}
 
-    // Two readings of one key: the first is likelier in the corpus, the second
-    // is likelier under the model. Scores are on the shared log-probability
-    // scale used everywhere in the engine.
-    let frequent = Candidate(text: "垃圾", pinyin: "la ji", source: .sentence, consumed: 4, score: -9.0)
-    let slang = Candidate(text: "辣鸡", pinyin: "la ji", source: .sentence, consumed: 4, score: -11.0)
-    let lm = ["垃圾": -19.5, "辣鸡": -17.4]
-    let gap = frequent.score - slang.score          // 2.0 in the corpus
-    let pull = (lm["辣鸡"]! - lm["垃圾"]!) * warm    // what the model can move
-
+@Test func theModelMayPromoteButNeverArbitrarilyDemote() {
+    // The lexicon's own first choice is the reference point, so a candidate the
+    // model likes less than that choice cannot be pushed further down.
+    let preferred = Candidate(text: "利息", pinyin: "li xi", source: .system, consumed: 4, score: -9.0)
+    let other = Candidate(text: "力系", pinyin: "li xi", source: .system, consumed: 4, score: -11.0)
+    let modelDislikesBoth = ["利息": -30.0, "力系": -40.0]
     let blended = CandidateBlender.blend(
-        [frequent, slang],
-        orderedCandidates: ["辣鸡", "垃圾"],
-        scores: lm,
+        [preferred, other],
+        orderedCandidates: ["利息", "力系"],
+        scores: modelDislikesBoth,
         hasContext: true
     )
-    #expect(blended.first?.text == (pull > gap ? "辣鸡" : "垃圾"))
+    #expect(blended.first?.text == "利息")
+    #expect(blended.first?.score == preferred.score)
 }

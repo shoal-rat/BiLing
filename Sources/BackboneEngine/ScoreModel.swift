@@ -73,6 +73,29 @@ public enum ScoreModel {
         log(max(weight, 0.5)) - logTotalWeight
     }
 
+    /// How much of the transition probability comes from the bigram model
+    /// rather than the lexicon unigram (Jelinek-Mercer interpolation). An
+    /// unseen transition falls back exactly to the unigram behaviour.
+    public static let transitionWeight = 0.40
+
+    /// Cost of one segment given the word before it.
+    ///
+    /// Scoring a segmentation as independent words cannot separate
+    /// 中国工程院·院士 from 中国工程·远远失望 — both are sequences of
+    /// individually plausible words. Conditioning on the previous word does,
+    /// and it also keeps the correct path alive during pruning, which is where
+    /// most of the gain comes from.
+    public static func transitionLogProbability(
+        weight: Double,
+        logTotalWeight: Double,
+        conditional: Double,
+        form: TypingForm
+    ) -> Double {
+        let unigram = exp(wordLogProbability(weight: weight, logTotalWeight: logTotalWeight))
+        let blended = transitionWeight * conditional + (1 - transitionWeight) * unigram
+        return log(max(blended, Double.leastNormalMagnitude)) + form.logProbability
+    }
+
     /// Cost of one segment written in `form`.
     public static func segmentLogProbability(
         weight: Double,
@@ -119,12 +142,25 @@ public enum ScoreModel {
         logMaxWeight - logTotalWeight + log1p(max(0, decayedCount)) * 0.5
     }
 
-    /// Weight on the language model when its scores are mixed with the
-    /// lexicon's, as a log-linear combination of two models of the same
-    /// candidate. With committed context the model has real evidence and gets
-    /// a strong vote; cold, its preference is mostly style, so the corpus
-    /// keeps the upper hand.
-    public static func languageModelWeight(hasContext: Bool) -> Double {
-        hasContext ? 0.50 : 0.30
+    /// Weight on the language model, scaled by how much it actually has to say.
+    ///
+    /// The lexicon already carries unigram frequency, estimated from a far
+    /// larger corpus than a 0.6B model's opinion about a single character. What
+    /// the model adds that the lexicon cannot is *conditional* structure: how a
+    /// candidate follows the text before it, and how its own parts follow one
+    /// another. That evidence is absent for a one-character candidate typed
+    /// with no preceding context — and those were exactly the inputs where
+    /// re-ranking made accuracy worse.
+    ///
+    /// So the weight grows with the number of conditional judgements available:
+    /// one per token boundary inside the candidate, plus the boundary with the
+    /// context when there is one. At zero evidence the model gets no vote and
+    /// the lexicon order stands.
+    public static func languageModelWeight(
+        hasContext: Bool,
+        candidateLength: Int
+    ) -> Double {
+        let evidence = Double(max(0, candidateLength - 1)) + (hasContext ? 2 : 0)
+        return 0.55 * evidence / (evidence + 1)
     }
 }
