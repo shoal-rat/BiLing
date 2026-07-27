@@ -15,6 +15,7 @@ final class RankerManager: @unchecked Sendable {
     private let modelURL: URL
     private let lock = NSLock()
     private var ranker: QwenRanker?
+    private var usingPersonalModel = false
     private var lastUse = ContinuousClock.now
     private var lastLoadError: String?
     private let idleTimer: DispatchSourceTimer
@@ -39,7 +40,15 @@ final class RankerManager: @unchecked Sendable {
             return ranker
         }
         do {
-            let loaded = try QwenRanker(modelURL: modelURL)
+            // Re-resolved on every load, so a model trained five minutes ago
+            // is picked up at the next lazy load without a reinstall.
+            let personalModel = ModelLocator.personalModelURL()
+            let loaded = try QwenRanker(
+                modelURL: personalModel ?? modelURL,
+                adapterURL: ModelLocator.adapterURL(),
+                adapterScale: ModelLocator.adapterScale()
+            )
+            usingPersonalModel = personalModel != nil
             ranker = loaded
             lastLoadError = nil
             return loaded
@@ -60,7 +69,8 @@ final class RankerManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if let ranker {
-            return "ready|\(ranker.modelDescription)"
+            let marker = usingPersonalModel ? " · 个人模型" : ""
+            return "ready|\(ranker.modelDescription)\(marker)"
         }
         if let lastLoadError {
             return "error|\(lastLoadError)"
@@ -71,7 +81,8 @@ final class RankerManager: @unchecked Sendable {
     func modelDescription() -> String {
         lock.lock()
         defer { lock.unlock() }
-        return ranker?.modelDescription ?? "Qwen3-0.6B-Base（待机）"
+        guard let ranker else { return "Qwen3-0.6B-Base（待机）" }
+        return ranker.modelDescription + (usingPersonalModel ? " · 个人模型" : "")
     }
 
     private func unloadIfIdle() {

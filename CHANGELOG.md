@@ -3,6 +3,25 @@
 本文档遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.4.0] - 2026-07-27
+
+### 新增
+
+- **简拼与缩写**：词库新增声母索引（格式 2，重建为 111 MB，改经
+  Git LFS 分发）。整串首字母直接出词（`jldx` → 吉林大学、`zgrm` →
+  中国人民），全拼 + 首字母混合可拼句（`beijinghy` → 北京还有）；
+  字母串本身是合法全拼时全拼优先（`fan` → 饭 不受影响）。
+- **LoRA 个性化**：`scripts/train_lora.sh` 一条命令完成 导出选择记录 →
+  mlx-lm 本地微调 Qwen3-0.6B-Base → 融合导出 GGUF → 量化 Q4_K_M →
+  装载；守护进程在下一次（懒）加载时自动改用个人模型，状态行标注
+  "个人模型"，删除文件即回退。推理层同时支持标准 GGUF LoRA 适配器
+  （`adapters/qwen-lora.gguf` 或 `BILING_LORA_PATH`，`BILING_LORA_SCALE`
+  调强度），适配器加载失败不影响打字。
+- `biling-cli --export-training-data DIR` 把加密学习库导出为 mlx-lm
+  训练格式；`--adapter` 指定适配器。
+- 模式判定改进：以拼音为主、尾部带声母的串（beijinghy）不再被误判为
+  英文输入。
+
 ## [1.3.0] - 2026-07-27
 
 ### 性能与能耗

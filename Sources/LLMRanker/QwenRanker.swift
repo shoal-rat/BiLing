@@ -46,12 +46,18 @@ public final class QwenRanker: @unchecked Sendable {
     private var active: RequestKey?
     public let modelDescription: String
 
-    public init(modelURL: URL) throws {
+    public init(modelURL: URL, adapterURL: URL? = nil, adapterScale: Float = 1.0) throws {
         guard FileManager.default.fileExists(atPath: modelURL.path) else {
             throw RankerError.modelMissing(modelURL)
         }
         var error = [CChar](repeating: 0, count: 512)
-        guard let loaded = biling_llama_open(modelURL.path, &error, error.count) else {
+        guard let loaded = biling_llama_open(
+            modelURL.path,
+            adapterURL?.path,
+            adapterScale,
+            &error,
+            error.count
+        ) else {
             throw RankerError.loadFailed(String(cString: error))
         }
         handle = LlamaHandle(loaded)
@@ -168,6 +174,39 @@ private extension Array where Element == String {
 
 public enum ModelLocator {
     public static let fileName = "qwen3-0.6b-base-q4_k_m.gguf"
+
+    /// A personal LoRA adapter, if the user trained one. Checked on every
+    /// (lazy) model load, so a freshly trained adapter is picked up on the
+    /// next load — at the latest after the daemon's idle unload — without
+    /// reinstalling anything. `BILING_LORA_PATH=""` disables it.
+    public static func adapterURL() -> URL? {
+        if let override = ProcessInfo.processInfo.environment["BILING_LORA_PATH"] {
+            return override.isEmpty ? nil : URL(fileURLWithPath: override)
+        }
+        let candidate = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BiLing/adapters/qwen-lora.gguf")
+        return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
+    }
+
+    public static func adapterScale() -> Float {
+        guard let raw = ProcessInfo.processInfo.environment["BILING_LORA_SCALE"],
+              let value = Float(raw), value > 0 else { return 1.0 }
+        return value
+    }
+
+    /// The LoRA-personalized full model produced by scripts/train_lora.sh
+    /// (mlx-lm fuse → llama-quantize). Preferred over the bundled model when
+    /// present; `BILING_PERSONAL_MODEL=0` ignores it without deleting it.
+    public static func personalModelURL() -> URL? {
+        if ProcessInfo.processInfo.environment["BILING_PERSONAL_MODEL"] == "0" {
+            return nil
+        }
+        let candidate = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BiLing/adapters/qwen-personal-q4_k_m.gguf")
+        return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
+    }
 
     public static func bundledModelURL() -> URL {
         if let override = ProcessInfo.processInfo.environment["BILING_MODEL_PATH"], !override.isEmpty {

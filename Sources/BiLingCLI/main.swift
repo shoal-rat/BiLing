@@ -4,16 +4,22 @@ import IPCProtocol
 import LLMRanker
 
 func usage() -> Never {
-    print("Usage: biling-cli [--xpc | --engine-only] [--model path] [--context text] PINYIN")
+    print("""
+    Usage: biling-cli [--xpc | --engine-only] [--model path] [--adapter path] \
+    [--context text] PINYIN
+           biling-cli --export-training-data DIR
+    """)
     exit(64)
 }
 
 var arguments = Array(CommandLine.arguments.dropFirst())
-var modelURL = ModelLocator.bundledModelURL()
+var modelURL = ModelLocator.personalModelURL() ?? ModelLocator.bundledModelURL()
+var adapterURL = ModelLocator.adapterURL()
 var context = ""
 var pinyin: String?
 var useXPC = false
 var engineOnly = false
+var exportDirectory: String?
 while !arguments.isEmpty {
     let item = arguments.removeFirst()
     switch item {
@@ -24,13 +30,31 @@ while !arguments.isEmpty {
     case "--model":
         guard !arguments.isEmpty else { usage() }
         modelURL = URL(fileURLWithPath: arguments.removeFirst())
+    case "--adapter":
+        guard !arguments.isEmpty else { usage() }
+        adapterURL = URL(fileURLWithPath: arguments.removeFirst())
     case "--context":
         guard !arguments.isEmpty else { usage() }
         context = arguments.removeFirst()
+    case "--export-training-data":
+        guard !arguments.isEmpty else { usage() }
+        exportDirectory = arguments.removeFirst()
     default:
         pinyin = item
     }
 }
+
+if let exportDirectory {
+    do {
+        let count = try TrainingDataExporter.export(to: URL(fileURLWithPath: exportDirectory, isDirectory: true))
+        print("Exported \(count) learned selections to \(exportDirectory)/train.jsonl and valid.jsonl")
+        exit(count > 0 ? 0 : 1)
+    } catch {
+        FileHandle.standardError.write(Data("Export failed: \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+}
+
 guard let pinyin else { usage() }
 
 do {
@@ -82,7 +106,11 @@ do {
             }
         }
     } else {
-        let ranker = try QwenRanker(modelURL: modelURL)
+        let ranker = try QwenRanker(
+            modelURL: modelURL,
+            adapterURL: adapterURL,
+            adapterScale: ModelLocator.adapterScale()
+        )
         ranked = try await ranker.rank(request)
     }
     if let error = ranked.error {

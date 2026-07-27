@@ -20,6 +20,7 @@ struct BiLingLlama {
     struct llama_model * model;
     struct llama_context * context;
     const struct llama_vocab * vocab;
+    struct llama_adapter_lora * adapter;
     volatile bool cancelled;
     char description[256];
 
@@ -118,7 +119,13 @@ static bool store_cached_tokens(struct BiLingLlama * instance, const llama_token
     return true;
 }
 
-BiLingLlama * biling_llama_open(const char * model_path, char * error, size_t error_size) {
+BiLingLlama * biling_llama_open(
+    const char * model_path,
+    const char * adapter_path,
+    float adapter_scale,
+    char * error,
+    size_t error_size
+) {
     if (model_path == NULL || model_path[0] == '\0') {
         write_error(error, error_size, "No model path was provided.");
         return NULL;
@@ -175,15 +182,35 @@ BiLingLlama * biling_llama_open(const char * model_path, char * error, size_t er
         return NULL;
     }
 
+    // A personal LoRA adapter is optional and must never take typing down:
+    // if it fails to load, continue with the plain base model and say so.
+    const char * adapter_note = "";
+    if (adapter_path != NULL && adapter_path[0] != '\0') {
+        instance->adapter = llama_adapter_lora_init(model, adapter_path);
+        if (instance->adapter != NULL) {
+            float scale = adapter_scale > 0.0f ? adapter_scale : 1.0f;
+            if (llama_set_adapters_lora(context, &instance->adapter, 1, &scale) == 0) {
+                adapter_note = " · LoRA";
+            } else {
+                llama_adapter_lora_free(instance->adapter);
+                instance->adapter = NULL;
+                adapter_note = " · LoRA 未生效";
+            }
+        } else {
+            adapter_note = " · LoRA 加载失败";
+        }
+    }
+
     char model_description[160] = {0};
     llama_model_desc(model, model_description, sizeof(model_description));
     snprintf(
         instance->description,
         sizeof(instance->description),
-        "%s · %.0f MB · %d tokens",
+        "%s · %.0f MB · %d tokens%s",
         model_description,
         (double) llama_model_size(model) / 1024.0 / 1024.0,
-        llama_vocab_n_tokens(instance->vocab)
+        llama_vocab_n_tokens(instance->vocab),
+        adapter_note
     );
     return instance;
 }
@@ -195,6 +222,9 @@ void biling_llama_close(BiLingLlama * instance) {
     free(instance->cached_tokens);
     free(instance->cached_logits);
     free(instance->scratch);
+    if (instance->adapter != NULL) {
+        llama_adapter_lora_free(instance->adapter);
+    }
     llama_free(instance->context);
     llama_model_free(instance->model);
     free(instance);

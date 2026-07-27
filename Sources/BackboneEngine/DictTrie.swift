@@ -20,6 +20,7 @@ public final class DictTrie: @unchecked Sendable {
     private let databaseQueue = DispatchQueue(label: "com.biling.lexicon-database")
     private var exactStatement: OpaquePointer?
     private var prefixProbeStatement: OpaquePointer?
+    private var abbrevStatement: OpaquePointer?
     private var maxKeyLength = 24
     public private(set) var syllables: Set<String> = []
     public private(set) var entryCount = 0
@@ -68,11 +69,21 @@ public final class DictTrie: @unchecked Sendable {
             &prefixProbeStatement,
             nil
         )
+        // Fails harmlessly on format-1 databases without the abbrev column;
+        // abbreviation lookup then just returns nothing.
+        sqlite3_prepare_v2(
+            handle,
+            "SELECT key, text, weight, pinyin FROM entries WHERE abbrev = ? ORDER BY weight DESC LIMIT ?;",
+            -1,
+            &abbrevStatement,
+            nil
+        )
     }
 
     deinit {
         if let exactStatement { sqlite3_finalize(exactStatement) }
         if let prefixProbeStatement { sqlite3_finalize(prefixProbeStatement) }
+        if let abbrevStatement { sqlite3_finalize(abbrevStatement) }
         if let database {
             sqlite3_close(database)
         }
@@ -139,6 +150,37 @@ public final class DictTrie: @unchecked Sendable {
             sqlite3_bind_int(statement, 2, Int32(limit))
             var result: [LexiconEntry] = []
             result.reserveCapacity(min(limit, 64))
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let storedKey = Self.columnText(statement, index: 0),
+                      let text = Self.columnText(statement, index: 1),
+                      let pinyin = Self.columnText(statement, index: 3) else { continue }
+                result.append(
+                    LexiconEntry(
+                        key: storedKey,
+                        text: text,
+                        weight: sqlite3_column_double(statement, 2),
+                        displayPinyin: pinyin
+                    )
+                )
+            }
+            return result
+        }
+    }
+
+    /// Entries whose syllable initials spell `abbrev` exactly (简拼):
+    /// "jldx" → 吉林大学, "hy" → 还有 / 行业 / 会议. Empty on format-1
+    /// databases that predate the abbrev column.
+    public func abbreviated(_ abbrev: String, limit: Int = 8) -> [LexiconEntry] {
+        guard database != nil else { return [] }
+        return databaseQueue.sync {
+            guard let statement = abbrevStatement else { return [] }
+            defer {
+                sqlite3_reset(statement)
+                sqlite3_clear_bindings(statement)
+            }
+            sqlite3_bind_text(statement, 1, abbrev, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int(statement, 2, Int32(limit))
+            var result: [LexiconEntry] = []
             while sqlite3_step(statement) == SQLITE_ROW {
                 guard let storedKey = Self.columnText(statement, index: 0),
                       let text = Self.columnText(statement, index: 1),

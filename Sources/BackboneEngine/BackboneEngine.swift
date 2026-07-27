@@ -60,6 +60,24 @@ public final class PinyinEngine: @unchecked Sendable {
 
         for sentence in sentenceCandidates(key: key, limit: 24) { add(sentence) }
 
+        // 简拼: the whole key read as syllable initials (jldx → 吉林大学).
+        // When the letters are also full pinyin the interpretation is a long
+        // shot, so it sinks; when they are not (jldx, zgrm), it carries the
+        // list together with curated Latin entries.
+        if key.count <= 8 {
+            for entry in dictionary.abbreviated(key, limit: 8) {
+                add(
+                    Candidate(
+                        text: entry.text,
+                        pinyin: entry.displayPinyin,
+                        source: .abbreviation,
+                        consumed: key.count,
+                        score: log1p(max(0, entry.weight)) + (mode == .chinesePrimary ? -2 : 10)
+                    )
+                )
+            }
+        }
+
         // A fully typed curated key always surfaces its canonical form —
         // "claude" → Claude at the top in English mode; "ai" → AI as a lower
         // candidate because 爱 is a real word; "openai" → OpenAI ahead of
@@ -165,6 +183,23 @@ public final class PinyinEngine: @unchecked Sendable {
             englishTailByPosition[position] = completion
             return completion
         }
+        // 混合简拼 tail: full pinyin followed by initials (beijinghy →
+        // 北京 + 还有). Only when the whole key does NOT parse as pinyin —
+        // otherwise fully valid inputs like "fan" would sprout 发+你.
+        let allowAbbreviationTails = !segmenter.segment(key).isComplete
+        var abbrevTailByPosition: [Int: [LexiconEntry]] = [:]
+        func abbrevTail(from position: Int) -> [LexiconEntry] {
+            if let cached = abbrevTailByPosition[position] { return cached }
+            let remaining = characters.count - position
+            let fresh: [LexiconEntry]
+            if allowAbbreviationTails, position > 0, remaining >= 1, remaining <= 6 {
+                fresh = dictionary.abbreviated(String(characters[position...]), limit: 2)
+            } else {
+                fresh = []
+            }
+            abbrevTailByPosition[position] = fresh
+            return fresh
+        }
 
         while !beams.isEmpty {
             var next: [Beam] = []
@@ -195,6 +230,19 @@ public final class PinyinEngine: @unchecked Sendable {
                             text: appendSegment(completion, to: beam.text),
                             pinyin: beam.pinyin + [String(characters[beam.position...])],
                             score: beam.score + 10,
+                            componentCount: beam.componentCount + 1
+                        )
+                    )
+                }
+                for entry in abbrevTail(from: beam.position) {
+                    let tailLength = characters.count - beam.position
+                    next.append(
+                        Beam(
+                            position: characters.count,
+                            text: appendSegment(entry.text, to: beam.text),
+                            pinyin: beam.pinyin + [entry.displayPinyin],
+                            score: beam.score + log1p(max(0, entry.weight))
+                                - (tailLength == 1 ? 8 : 2),
                             componentCount: beam.componentCount + 1
                         )
                     )

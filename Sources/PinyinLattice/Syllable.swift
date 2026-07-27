@@ -65,10 +65,18 @@ public enum PinyinNormalizer {
         }
         let normalized = normalize(raw)
         let segmenter = Segmenter(inventory: inventory)
-        if segmenter.segment(normalized).isComplete {
+        let segmentation = segmenter.segment(normalized)
+        if segmentation.isComplete {
             return .chinesePrimary
         }
         if normalized.split(separator: "'").allSatisfy({ inventory.prefixes.contains(String($0)) }) {
+            return .chineseWithEnglish
+        }
+        // Mostly-pinyin buffers with a trailing remainder (beijinghy = 北京
+        // + initials hy) are Chinese with a tail, not English: the lattice
+        // consumed at least half of the letters.
+        if segmentation.consumedCharacters > 0,
+           segmentation.consumedCharacters * 2 >= segmentation.inputLength {
             return .chineseWithEnglish
         }
         return .englishPrimary

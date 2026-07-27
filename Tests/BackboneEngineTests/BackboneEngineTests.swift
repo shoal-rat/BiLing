@@ -83,6 +83,14 @@ private func makeEngine() throws -> PinyinEngine {
     #expect(engine.candidates(for: "fan").candidates.first?.text == "饭")
 }
 
+@Test func abbreviationTypingWorks() throws {
+    let engine = try makeEngine()
+    #expect(engine.candidates(for: "jldx").candidates.first?.text == "吉林大学")
+    #expect(engine.candidates(for: "zgrm").candidates.first?.text == "中国人民")
+    let mixedTail = engine.candidates(for: "beijinghy").candidates.prefix(3)
+    #expect(mixedTail.contains(where: { $0.text == "北京还有" }))
+}
+
 @Test func blenderKeepsFrequencyAdvantageWithoutContext() {
     let frequent = Candidate(text: "垃圾", pinyin: "la ji", source: .sentence, consumed: 4, score: 10)
     let slang = Candidate(text: "辣鸡", pinyin: "la ji", source: .sentence, consumed: 4, score: 9.4)

@@ -21,7 +21,7 @@ confirms the order. Press Space to commit.
 
 Apple silicon Mac, macOS 26 or newer.
 
-1. Download `BiLing-1.3.0-macOS-arm64.zip` from the
+1. Download `BiLing-1.4.0-macOS-arm64.zip` from the
    [latest release](https://github.com/shoal-rat/BiLing/releases/latest)
    and unzip it;
 2. Control-click `安装笔灵.command`, choose Open;
@@ -160,6 +160,34 @@ latency/memory charts, see **[Docs/THEORY.md](Docs/THEORY.md)**
 - 笔灵设置 → 学习与隐私 lists every learned item and clears all of them in
   one click.
 
+### LoRA personalization (advanced, optional)
+
+Frequency learning covers *which word you prefer*; LoRA fine-tuning goes
+further and adapts the model itself to your writing. Everything stays on
+this Mac:
+
+```bash
+./scripts/train_lora.sh          # 200 steps by default, minutes on M-series
+```
+
+The script exports your selection history (expect one Keychain prompt for
+the encrypted store's key), LoRA-fine-tunes Qwen3-0.6B-Base locally with
+mlx-lm, fuses and exports a GGUF, quantizes it back to Q4_K_M, and
+installs it under `~/Library/Application Support/BiLing/adapters/`. The
+daemon switches to the personal model on its next load and the status
+line gains a "个人模型" marker.
+
+- The first run downloads the base model (~1.2 GB, once) and builds a
+  private Python venv;
+- Your selections are the training data — with fewer than 16 lines the
+  script refuses; type normally for a few days first;
+- **Rollback**: delete `adapters/qwen-personal-q4_k_m.gguf` and
+  `launchctl kickstart -k "gui/$(id -u)/com.biling.inputmethod.engine"` —
+  you are back on the stock model instantly;
+- A standard GGUF LoRA adapter dropped at `adapters/qwen-lora.gguf` (or
+  via `BILING_LORA_PATH`) is mounted as a true adapter instead, with
+  `BILING_LORA_SCALE` controlling its strength.
+
 ## Keyboard
 
 | Key | Action |
@@ -176,6 +204,12 @@ latency/memory charts, see **[Docs/THEORY.md](Docs/THEORY.md)**
 In a Chinese context, `,` `.` `?` `!` `:` `;` become full-width; a space is
 inserted automatically where Chinese meets Latin. Both are toggleable in
 settings.
+
+**Abbreviated pinyin (简拼)** works too: whole-key initials produce words
+directly (`jldx` → 吉林大学, `zgrm` → 中国人民), and full pinyin followed
+by initials composes (`beijinghy` → 北京还有). When the letters are also
+valid full pinyin, the full reading wins — abbreviation never steals
+`fan` → 饭.
 
 Latin script inside a sentence needs no mode switch. Recognition has three
 layers:
@@ -232,8 +266,8 @@ Power Mode BiLing switches the session to Apple pinyin by itself.
 ## Verify it yourself
 
 ```bash
-swift test    # 22 tests: segmentation ambiguity, heteronyms, learning,
-              # privacy guard, and the README-example regression
+swift test    # 25 tests: segmentation ambiguity, heteronyms, abbreviations,
+              # learning, privacy guard, and the README-example regression
 ```
 
 ```bash
@@ -301,7 +335,7 @@ Sources/
 
 - Lexicon: [rime_wanxiang](https://github.com/amzxyz/rime_wanxiang)
   (CC BY 4.0) and [rime-pinyin-simp](https://github.com/rime/rime-pinyin-simp)
-  (Apache-2.0), compiled into a 59 MB read-only SQLite index with 1,440,094
+  (Apache-2.0), compiled into a 111 MB read-only SQLite index (with the 简拼 initials index, via Git LFS) with 1,440,094
   unique entries. Rebuild with `python3 scripts/build_dictionary.py`;
   sources and pinned commits are documented in `Resources/Lexicon/`;
 - Model: [Qwen3-0.6B-Base](https://huggingface.co/Qwen/Qwen3-0.6B-Base)

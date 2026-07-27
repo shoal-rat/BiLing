@@ -9,7 +9,16 @@ extern "C" {
 
 typedef struct BiLingLlama BiLingLlama;
 
-BiLingLlama * biling_llama_open(const char * model_path, char * error, size_t error_size);
+// adapter_path may be NULL or empty for no LoRA adapter. A failing adapter
+// load is non-fatal: the model comes up without it and the description says
+// so. adapter_scale is the LoRA strength (1.0 = as trained).
+BiLingLlama * biling_llama_open(
+    const char * model_path,
+    const char * adapter_path,
+    float adapter_scale,
+    char * error,
+    size_t error_size
+);
 void biling_llama_close(BiLingLlama * instance);
 
 // Scores each candidate by its complete canonical token path after context.

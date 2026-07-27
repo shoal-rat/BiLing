@@ -19,7 +19,7 @@
 Apple silicon Mac，macOS 26 或更新。
 
 1. 从 [Releases](https://github.com/shoal-rat/BiLing/releases/latest) 下载
-   `BiLing-1.3.0-macOS-arm64.zip` 并解压；
+   `BiLing-1.4.0-macOS-arm64.zip` 并解压；
 2. 右键 `安装笔灵.command`，选"打开"；
 3. 安装器会自己校验模型摘要、启动服务、跑一遍
    `jilindaxuelajixuexiao → 吉林大学垃圾学校` 的排序检查，然后注册输入源；
@@ -132,6 +132,29 @@ App 路径、代码签名有效的 XPC 连接。请求带代次标记，谁过�
   长数字、URL、邮箱、高熵字符串、以及你用 Return 原样上屏的内容；
 - "笔灵设置 → 学习与隐私"能看到它学的每一条，也能一键全部清掉。
 
+### LoRA 个性化（进阶，可选）
+
+词频学习覆盖"你常用哪个词"；LoRA 微调更进一步，让模型本身适应你的
+用语。全程在本机：
+
+```bash
+./scripts/train_lora.sh          # 默认 200 步，M 系列上几分钟
+```
+
+脚本会导出你的选择记录（读取加密库时 Keychain 会弹一次确认）、在
+本地用 mlx-lm 对 Qwen3-0.6B-Base 做 LoRA 微调、融合导出 GGUF 并量化
+回 Q4_K_M，装入 `~/Library/Application Support/BiLing/adapters/`。
+守护进程在下一次加载时自动改用个人模型，状态行会标注"个人模型"。
+
+- 首次运行需要下载基座模型（约 1.2 GB，仅一次）并自建 Python venv；
+- 训练数据就是你的选择记录，不够 16 条会拒绝训练——先正常打几天字；
+- **回退**：删除 `adapters/qwen-personal-q4_k_m.gguf` 再
+  `launchctl kickstart -k "gui/$(id -u)/com.biling.inputmethod.engine"`，
+  立刻回到出厂模型；
+- 也可以放一个标准 GGUF 格式的 LoRA 适配器到
+  `adapters/qwen-lora.gguf`（或设 `BILING_LORA_PATH`），笔灵会以
+  adapter 方式挂载，`BILING_LORA_SCALE` 调强度。
+
 ## 键盘
 
 | 按键 | 动作 |
@@ -147,6 +170,10 @@ App 路径、代码签名有效的 XPC 连接。请求带代次标记，谁过�
 
 中文语境下 `,` `.` `?` `!` `:` `;` 自动转全角；中英文相邻自动补空格；
 两者都能在设置里关。
+
+**简拼**也认识：整串首字母直接出词（`jldx` → 吉林大学，`zgrm` →
+中国人民），全拼后面跟首字母也行（`beijinghy` → 北京还有）。字母串
+本身是合法拼音时全拼优先，简拼解释排在后面，不会抢 `fan` → 饭 的位置。
 
 夹在句子里的拉丁字母不用切换模式，识别分三层：
 
@@ -190,7 +217,7 @@ Caps Lock 切换。
 ## 自己验证
 
 ```bash
-swift test          # 22 项测试：切分歧义、多音字、学习、隐私守卫、示例回归
+swift test          # 25 项测试：切分歧义、多音字、简拼、学习、隐私守卫、示例回归
 ```
 
 ```bash
@@ -255,7 +282,7 @@ Sources/
 
 - 词库：[万象拼音](https://github.com/amzxyz/rime_wanxiang)（CC BY 4.0）
   与 [Rime pinyin-simp](https://github.com/rime/rime-pinyin-simp)
-  （Apache-2.0），编译成 59 MB 只读 SQLite，1,440,094 条唯一词条。
+  （Apache-2.0），编译成 111 MB 只读 SQLite（含简拼声母索引，Git LFS），1,440,094 条唯一词条。
   重建：`python3 scripts/build_dictionary.py --source ... --output ...`，
   来源与固定提交记录在 `Resources/Lexicon/`；
 - 模型：[Qwen3-0.6B-Base](https://huggingface.co/Qwen/Qwen3-0.6B-Base)
