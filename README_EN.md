@@ -21,7 +21,7 @@ confirms the order. Press Space to commit.
 
 Apple silicon Mac, macOS 26 or newer.
 
-1. Download `BiLing-1.4.0-macOS-arm64.zip` from the
+1. Download `BiLing-1.3.0-macOS-arm64.zip` from the
    [latest release](https://github.com/shoal-rat/BiLing/releases/latest)
    and unzip it;
 2. Control-click `安装笔灵.command`, choose Open;

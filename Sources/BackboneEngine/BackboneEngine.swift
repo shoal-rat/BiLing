@@ -393,7 +393,21 @@ public final class PinyinEngine: @unchecked Sendable {
                     )
                 }
             }
-            beams = Array(next.sorted { $0.score > $1.score }.prefix(64))
+            // Prune per end position, never globally. Scores are sums of
+            // log-probabilities, so a path that has consumed less of the input
+            // always outscores one that has consumed more; a single global
+            // cutoff therefore throws away well-advanced paths and keeps
+            // whichever prefix happens to be shortest. Comparing only paths
+            // that have reached the same position is the standard lattice
+            // formulation and is what keeps genuine alternatives — 大学 beside
+            // 东西 — alive to be re-ranked later.
+            var byPosition: [Int: [Beam]] = [:]
+            for beam in next {
+                byPosition[beam.position, default: []].append(beam)
+            }
+            beams = byPosition.values.flatMap {
+                $0.sorted { $0.score > $1.score }.prefix(12)
+            }
         }
 
         var seen: Set<String> = []

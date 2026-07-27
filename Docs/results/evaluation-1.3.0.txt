@@ -1,28 +1,79 @@
-===  ===
+BiLing 1.3.0 evaluation — Apple M5 / macOS 26.5 / Qwen3-0.6B-Base Q4_K_M
+Corpus: Tests/Corpus/eval.tsv (72 labelled items)
 
-sentence n=10   top1  80.0%   top5  90.0%   MRR 0.850   median   30.3 ms   p95   50.9 ms
-mixed n=5    top1  60.0%   top5  60.0%   MRR 0.625   median   36.4 ms   p95   45.3 ms
-abbrevmix n=6    top1  16.7%   top5  33.3%   MRR 0.250   median   32.5 ms   p95   36.4 ms
-context n=11   top1  81.8%   top5 100.0%   MRR 0.909   median   29.1 ms   p95   33.2 ms
-abbrev n=5    top1 100.0%   top5 100.0%   MRR 1.000   median   23.0 ms   p95   26.8 ms
-heteronym n=8    top1 100.0%   top5 100.0%   MRR 1.000   median   22.4 ms   p95   23.4 ms
-common n=14   top1 100.0%   top5 100.0%   MRR 1.000   median   22.0 ms   p95   23.4 ms
-single n=8    top1  87.5%   top5 100.0%   MRR 0.917   median    7.1 ms   p95   20.8 ms
-latin n=5    top1  80.0%   top5 100.0%   MRR 0.900   median   11.9 ms   p95   22.9 ms
+=== A. lexicon only, no context ===
+
+sentence n=10   top1  70.0%   top5  90.0%   MRR 0.800   median    2.9 ms   p95    3.4 ms
+mixed n=5    top1  40.0%   top5  60.0%   MRR 0.529   median    3.8 ms   p95    6.8 ms
+abbrevmix n=6    top1   0.0%   top5  50.0%   MRR 0.250   median    4.3 ms   p95    5.8 ms
+context n=11   top1  54.5%   top5 100.0%   MRR 0.708   median    0.3 ms   p95    1.5 ms
+abbrev n=5    top1 100.0%   top5 100.0%   MRR 1.000   median    0.2 ms   p95    1.1 ms
+heteronym n=8    top1 100.0%   top5 100.0%   MRR 1.000   median    0.3 ms   p95    0.5 ms
+common n=14   top1 100.0%   top5 100.0%   MRR 1.000   median    0.4 ms   p95    0.5 ms
+single n=8    top1 100.0%   top5 100.0%   MRR 1.000   median    0.2 ms   p95    0.3 ms
+latin n=5    top1 100.0%   top5 100.0%   MRR 1.000   median    0.3 ms   p95    0.5 ms
 ------------------------------------------------------------------------------------------------
-OVERALL n=72   top1  81.9%   top5  90.3%   MRR 0.861   median   23.4 ms   p95   37.2 ms
+OVERALL n=72   top1  76.4%   top5  91.7%   MRR 0.832   median    0.4 ms   p95    4.6 ms
 
-Misses (13):
+Misses (17):
+  womenmingtianzaikaihui
+      want 我们明天再开会   got 我们明天在开会   rank 2
   qingbawenjianfagelingdao
       want 请把文件发给领导   got 请把文件发个领导   rank absent
   zhebenshuxiedefeichanghao
       want 这本书写得非常好   got 这本书写的非常好   rank 2
   wozaipolytechnicxuedeleisi
-      want 我在polytechnic学的累死   got 我在 polytechnic 学的类似   rank 8
+      want 我在polytechnic学的累死   got 我在 polytechnic 学的类似   rank 7
   zhegedemoxiedebucuo
       want 这个demo写得不错   got 这个的默写得不错   rank absent
+  bacodetijiaodaogithub
+      want 把code提交到GitHub   got 吧 code 提交到 GitHub   rank 2
   jilindxmeiykongt
-      want 吉林大学没有空调   got 吉林东西没有空调   rank absent
+      want 吉林大学没有空调   got 吉林东西没有空调   rank 2
+  jilindxlajixuexiao
+      want 吉林大学垃圾学校   got 吉林东西垃圾学校   rank 2
+  wozaipolyxuedleis
+      want 我在poly学的累死   got 我在 poly 学的类似   rank absent
+  jintiantqzhenbucuo
+      want 今天天气真不错   got 今天提前真不错   rank absent
+  womenmingtzaikaihui
+      want 我们明天再开会   got 我们明天在开会   rank 2
+  qingbawenjfagelingd
+      want 请把文件发给领导   got 请把文件发个领导   rank absent
+  yisheng
+      want 一生   got 医生   rank 2
+  xiangqi
+      want 象棋   got 想起   rank 4
+  shiyan
+      want 誓言   got 实验   rank 5
+  lixi
+      want 力系   got 利息   rank 3
+  huiyi
+      want 回忆   got 会议   rank 2
+
+=== C. lexicon + Qwen, no context ===
+
+sentence n=10   top1  80.0%   top5  90.0%   MRR 0.850   median   34.4 ms   p95   60.6 ms
+mixed n=5    top1  60.0%   top5  60.0%   MRR 0.633   median   39.1 ms   p95   67.1 ms
+abbrevmix n=6    top1  33.3%   top5  50.0%   MRR 0.417   median   35.0 ms   p95   39.5 ms
+context n=11   top1  54.5%   top5 100.0%   MRR 0.715   median   23.7 ms   p95   24.8 ms
+abbrev n=5    top1 100.0%   top5 100.0%   MRR 1.000   median   23.9 ms   p95   26.2 ms
+heteronym n=8    top1 100.0%   top5 100.0%   MRR 1.000   median   24.8 ms   p95   26.4 ms
+common n=14   top1 100.0%   top5 100.0%   MRR 1.000   median   23.6 ms   p95   27.4 ms
+single n=8    top1  87.5%   top5 100.0%   MRR 0.917   median    8.1 ms   p95   22.1 ms
+latin n=5    top1  80.0%   top5 100.0%   MRR 0.900   median   12.2 ms   p95   23.1 ms
+------------------------------------------------------------------------------------------------
+OVERALL n=72   top1  79.2%   top5  91.7%   MRR 0.845   median   24.0 ms   p95   39.5 ms
+
+Misses (15):
+  qingbawenjianfagelingdao
+      want 请把文件发给领导   got 请把文件发个领导   rank absent
+  zhebenshuxiedefeichanghao
+      want 这本书写得非常好   got 这本书写的非常好   rank 2
+  wozaipolytechnicxuedeleisi
+      want 我在polytechnic学的累死   got 我在 polytechnic 学的类似   rank 6
+  zhegedemoxiedebucuo
+      want 这个demo写得不错   got 这个的默写得不错   rank absent
   wozaipolyxuedleis
       want 我在poly学的累死   got 我在 poly 学到类似   rank absent
   jintiantqzhenbucuo
@@ -30,40 +81,45 @@ Misses (13):
   womenmingtzaikaihui
       want 我们明天再开会   got 我们明天在开会   rank 2
   qingbawenjfagelingd
-      want 请把文件发给领导   got 请吧文件发个领导   rank absent
+      want 请把文件发给领导   got 请把文件发个领导   rank absent
+  yisheng
+      want 一生   got 医生   rank 2
+  xiangqi
+      want 象棋   got 想起   rank 3
+  shiyan
+      want 誓言   got 实验   rank 5
   lixi
-      want 力系   got 利息   rank 2
+      want 力系   got 利息   rank 3
   huiyi
       want 回忆   got 会议   rank 2
   ai
       want 爱   got 唉   rank 3
   python
       want Python   got pythonic   rank 2
-===  ===
 
-sentence n=10   top1  80.0%   top5  90.0%   MRR 0.850   median   30.4 ms   p95   42.0 ms
-mixed n=5    top1  60.0%   top5  60.0%   MRR 0.625   median   36.0 ms   p95   46.5 ms
-abbrevmix n=6    top1  16.7%   top5  33.3%   MRR 0.250   median   32.4 ms   p95   36.4 ms
-context n=11   top1  81.8%   top5 100.0%   MRR 0.909   median   29.4 ms   p95   33.5 ms
-abbrev n=5    top1 100.0%   top5 100.0%   MRR 1.000   median   23.2 ms   p95   26.8 ms
-heteronym n=8    top1 100.0%   top5 100.0%   MRR 1.000   median   22.4 ms   p95   23.4 ms
-common n=14   top1 100.0%   top5 100.0%   MRR 1.000   median   22.1 ms   p95   23.4 ms
-single n=8    top1  87.5%   top5 100.0%   MRR 0.917   median    7.1 ms   p95   20.8 ms
-latin n=5    top1  80.0%   top5 100.0%   MRR 0.900   median   11.9 ms   p95   23.1 ms
+=== D. lexicon + Qwen + context (full system) ===
+
+sentence n=10   top1  80.0%   top5  90.0%   MRR 0.850   median   32.7 ms   p95   44.7 ms
+mixed n=5    top1  60.0%   top5  60.0%   MRR 0.633   median   37.2 ms   p95   61.7 ms
+abbrevmix n=6    top1  33.3%   top5  50.0%   MRR 0.417   median   32.7 ms   p95   36.8 ms
+context n=11   top1  81.8%   top5 100.0%   MRR 0.909   median   30.9 ms   p95   35.3 ms
+abbrev n=5    top1 100.0%   top5 100.0%   MRR 1.000   median   24.9 ms   p95   29.8 ms
+heteronym n=8    top1 100.0%   top5 100.0%   MRR 1.000   median   23.3 ms   p95   24.6 ms
+common n=14   top1 100.0%   top5 100.0%   MRR 1.000   median   23.7 ms   p95   25.8 ms
+single n=8    top1  87.5%   top5 100.0%   MRR 0.917   median    7.9 ms   p95   22.1 ms
+latin n=5    top1  80.0%   top5 100.0%   MRR 0.900   median   12.7 ms   p95   24.3 ms
 ------------------------------------------------------------------------------------------------
-OVERALL n=72   top1  81.9%   top5  90.3%   MRR 0.861   median   23.4 ms   p95   37.4 ms
+OVERALL n=72   top1  83.3%   top5  91.7%   MRR 0.875   median   24.9 ms   p95   38.6 ms
 
-Misses (13):
+Misses (12):
   qingbawenjianfagelingdao
       want 请把文件发给领导   got 请把文件发个领导   rank absent
   zhebenshuxiedefeichanghao
       want 这本书写得非常好   got 这本书写的非常好   rank 2
   wozaipolytechnicxuedeleisi
-      want 我在polytechnic学的累死   got 我在 polytechnic 学的类似   rank 8
+      want 我在polytechnic学的累死   got 我在 polytechnic 学的类似   rank 6
   zhegedemoxiedebucuo
       want 这个demo写得不错   got 这个的默写得不错   rank absent
-  jilindxmeiykongt
-      want 吉林大学没有空调   got 吉林东西没有空调   rank absent
   wozaipolyxuedleis
       want 我在poly学的累死   got 我在 poly 学到类似   rank absent
   jintiantqzhenbucuo
@@ -71,89 +127,7 @@ Misses (13):
   womenmingtzaikaihui
       want 我们明天再开会   got 我们明天在开会   rank 2
   qingbawenjfagelingd
-      want 请把文件发给领导   got 请吧文件发个领导   rank absent
-  lixi
-      want 力系   got 利息   rank 2
-  huiyi
-      want 回忆   got 会议   rank 2
-  ai
-      want 爱   got 唉   rank 3
-  python
-      want Python   got pythonic   rank 2
-===  ===
-
-sentence n=10   top1  80.0%   top5  90.0%   MRR 0.850   median   30.5 ms   p95   41.8 ms
-mixed n=5    top1  60.0%   top5  60.0%   MRR 0.625   median   36.0 ms   p95   45.4 ms
-abbrevmix n=6    top1  16.7%   top5  33.3%   MRR 0.250   median   32.3 ms   p95   36.5 ms
-context n=11   top1  81.8%   top5 100.0%   MRR 0.909   median   29.2 ms   p95   33.2 ms
-abbrev n=5    top1 100.0%   top5 100.0%   MRR 1.000   median   23.1 ms   p95   27.1 ms
-heteronym n=8    top1 100.0%   top5 100.0%   MRR 1.000   median   22.6 ms   p95   23.5 ms
-common n=14   top1 100.0%   top5 100.0%   MRR 1.000   median   22.0 ms   p95   23.7 ms
-single n=8    top1  87.5%   top5 100.0%   MRR 0.917   median    7.1 ms   p95   21.0 ms
-latin n=5    top1  80.0%   top5 100.0%   MRR 0.900   median   11.7 ms   p95   23.1 ms
-------------------------------------------------------------------------------------------------
-OVERALL n=72   top1  81.9%   top5  90.3%   MRR 0.861   median   23.5 ms   p95   37.2 ms
-
-Misses (13):
-  qingbawenjianfagelingdao
       want 请把文件发给领导   got 请把文件发个领导   rank absent
-  zhebenshuxiedefeichanghao
-      want 这本书写得非常好   got 这本书写的非常好   rank 2
-  wozaipolytechnicxuedeleisi
-      want 我在polytechnic学的累死   got 我在 polytechnic 学的类似   rank 8
-  zhegedemoxiedebucuo
-      want 这个demo写得不错   got 这个的默写得不错   rank absent
-  jilindxmeiykongt
-      want 吉林大学没有空调   got 吉林东西没有空调   rank absent
-  wozaipolyxuedleis
-      want 我在poly学的累死   got 我在 poly 学到类似   rank absent
-  jintiantqzhenbucuo
-      want 今天天气真不错   got 今天提前真不错   rank absent
-  womenmingtzaikaihui
-      want 我们明天再开会   got 我们明天在开会   rank 2
-  qingbawenjfagelingd
-      want 请把文件发给领导   got 请吧文件发个领导   rank absent
-  lixi
-      want 力系   got 利息   rank 2
-  huiyi
-      want 回忆   got 会议   rank 2
-  ai
-      want 爱   got 唉   rank 3
-  python
-      want Python   got pythonic   rank 2
-===  ===
-
-sentence n=10   top1  80.0%   top5  90.0%   MRR 0.850   median   30.4 ms   p95   41.9 ms
-mixed n=5    top1  60.0%   top5  60.0%   MRR 0.625   median   36.0 ms   p95   45.5 ms
-abbrevmix n=6    top1  16.7%   top5  33.3%   MRR 0.250   median   32.3 ms   p95   36.3 ms
-context n=11   top1  81.8%   top5 100.0%   MRR 0.909   median   29.2 ms   p95   33.4 ms
-abbrev n=5    top1 100.0%   top5 100.0%   MRR 1.000   median   23.2 ms   p95   26.9 ms
-heteronym n=8    top1 100.0%   top5 100.0%   MRR 1.000   median   22.4 ms   p95   23.4 ms
-common n=14   top1 100.0%   top5 100.0%   MRR 1.000   median   22.0 ms   p95   23.3 ms
-single n=8    top1  87.5%   top5 100.0%   MRR 0.917   median    7.0 ms   p95   20.9 ms
-latin n=5    top1  80.0%   top5 100.0%   MRR 0.900   median   11.9 ms   p95   23.0 ms
-------------------------------------------------------------------------------------------------
-OVERALL n=72   top1  81.9%   top5  90.3%   MRR 0.861   median   23.3 ms   p95   37.2 ms
-
-Misses (13):
-  qingbawenjianfagelingdao
-      want 请把文件发给领导   got 请把文件发个领导   rank absent
-  zhebenshuxiedefeichanghao
-      want 这本书写得非常好   got 这本书写的非常好   rank 2
-  wozaipolytechnicxuedeleisi
-      want 我在polytechnic学的累死   got 我在 polytechnic 学的类似   rank 8
-  zhegedemoxiedebucuo
-      want 这个demo写得不错   got 这个的默写得不错   rank absent
-  jilindxmeiykongt
-      want 吉林大学没有空调   got 吉林东西没有空调   rank absent
-  wozaipolyxuedleis
-      want 我在poly学的累死   got 我在 poly 学到类似   rank absent
-  jintiantqzhenbucuo
-      want 今天天气真不错   got 今天提前真不错   rank absent
-  womenmingtzaikaihui
-      want 我们明天再开会   got 我们明天在开会   rank 2
-  qingbawenjfagelingd
-      want 请把文件发给领导   got 请吧文件发个领导   rank absent
   lixi
       want 力系   got 利息   rank 2
   huiyi

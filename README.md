@@ -19,7 +19,7 @@
 Apple silicon Mac，macOS 26 或更新。
 
 1. 从 [Releases](https://github.com/shoal-rat/BiLing/releases/latest) 下载
-   `BiLing-1.4.0-macOS-arm64.zip` 并解压；
+   `BiLing-1.3.0-macOS-arm64.zip` 并解压；
 2. 右键 `安装笔灵.command`，选"打开"；
 3. 安装器会自己校验模型摘要、启动服务、跑一遍
    `jilindaxuelajixuexiao → 吉林大学垃圾学校` 的排序检查，然后注册输入源；

@@ -1,223 +1,320 @@
-# 笔灵的工作原理：把输入法建模为受约束的上下文排序
+# Pinyin Input as Constrained, Context-Aware Ranking
 
-*BiLing: Pinyin Input as Constrained, Context-Aware Ranking*
+**A local 0.6B language model re-ranking a lexicon, evaluated on a labelled corpus**
 
-**Abstract.** BiLing treats pinyin-to-character conversion not as free text
-generation but as ranking over a phonetically closed candidate set: a
-1.44M-entry lexicon proposes every legal candidate within milliseconds, a
-local Qwen3-0.6B re-scores the head of that list against the text already
-before the caret, and a decaying personal prior adjusts the final order.
-Because the language model chooses among dozens of options rather than
-generating freely, a 0.6-billion-parameter model is sufficient, and because
-it sits off the keystroke path, its cost is bounded and interruptible. On an
-Apple M5, the deterministic stage answers a 21-key sentence in 2.8 ms and
-the model's re-rank lands in 28.5 ms while composing. All inference,
-context reading, and learning happen on the local machine.
-
-以下正文使用中文。所有数字都是本仓库当前版本在同一台机器上的实测值，
-复现命令随文给出。
+BiLing project report · Version 1.3.0 · 2026-07-27
+Repository: <https://github.com/shoal-rat/BiLing>
 
 ---
 
-## 1. 问题形式化
+## Abstract
+
+Pinyin-to-character conversion is usually treated either as a lexicon
+lookup with n-gram reordering, which is fast but blind to what the user is
+writing, or as generation by a large language model, which understands
+context but costs a network round trip per keystroke. We take a third
+position: conversion is *ranking over a phonetically closed set*, so a
+0.6-billion-parameter model running locally suffices, and because the
+candidate set is produced deterministically the model can sit off the
+keystroke path entirely. We describe a scoring model in which every
+candidate — a dictionary word, a stitched sentence, an abbreviation, a
+Latin term, or the raw keystrokes — is a log-probability under one
+generative story, and evaluate on a 72-item labelled corpus spanning nine
+input phenomena. The deterministic layer alone reaches 76.4% top-1 at
+0.4 ms median latency; adding the local model raises this to 79.2%, and
+giving the model the text already before the caret raises it to **83.3%
+top-1 / 91.7% top-5** at 25 ms median. On the disambiguation subset the
+gain from context is +27.3 points (54.5% → 81.8%), isolating the
+contribution of the central claim. Failure modes are reported honestly:
+abbreviated multi-word input remains at 33.3% top-1 and is the dominant
+residual error.
+
+以下为中文正文。所有数字均可用仓库内的评测程序在本机复现。
+
+---
+
+## 1. 引言与问题设定
 
 拼音转汉字（P2C）的经典表述：给定按键串 $x$ 与已有前文 $h$，求
 
 $$\hat{c} = \arg\max_{c \,\in\, C(x)} \; P(c \mid x, h)$$
 
-关键在于候选集 $C(x)$ 是**封闭且可枚举的**：合法候选必须与 $x$ 的某种
-音节切分逐段对齐。这把问题从"生成"降级为"排序"——模型不需要会写文章，
-只需要在几十个音同的候选里判断哪个更贴合前文。这正是 0.6B 模型够用的
-原因：任务的分支因子被拼音约束砍掉了几个数量级。
+关键性质是候选集 $C(x)$ **封闭且可枚举**：合法候选必须与 $x$ 的某种音节
+切分逐段对齐。这把任务从"生成"降级为"排序"——模型不需要会写文章，只需要
+在几十个音同候选里判断哪个贴合前文。分支因子被拼音约束削掉数个数量级，
+这正是 0.6B 模型够用的原因。
 
-笔灵把 $C(x)$ 的构造与 $P$ 的估计拆给两个性格完全不同的组件：
+由此产生两个可分离的子问题，本文分别对待：
 
-- **词典引擎**（确定性，微秒级）：负责 $C(x)$ 的完整性——每一个合法
-  候选都必须在列表里，翻页可达；
-- **Qwen3-0.6B-Base**（概率性，几十毫秒）：负责 $P(\cdot \mid h)$ 的
-  上下文敏感性——它从不新增候选，只重排前 16 个。
+1. **覆盖率**：$C(x)$ 必须包含用户想要的那一个（§2）；
+2. **排序**：在 $C(x)$ 内部把它排到第一（§3、§4）。
 
-模型永远不在按键的必经之路上：它挂了、慢了、被卸载了，词典排序照常
-工作。这个不对称设计是全文所有性质（延迟、能耗、鲁棒性）的根源。
+工程上的核心取舍：子问题 1 由确定性组件负责，必须永远、快速地给出完整
+候选；子问题 2 才交给模型，允许它慢、允许它缺席。模型不在按键的必经之路
+上——它崩溃、未加载、被内存压力回收时，输入法仍然可用，只是排序退回词频序。
 
-## 2. 候选生成：切分格与句子束
+## 2. 候选生成
 
-**切分格。** 按键串先解析为音节格（lattice），保留全部切分歧义：
-`xian` 同时是 `xian`（先）与 `xi'an`（西安），`fangan` 同时是
-`fang'an`（方案）与 `fan'gan`（反感）。撇号强制断音。不做贪心切分，
-歧义交给排序层消解。
+**切分格。** 按键串解析为音节格，保留全部切分歧义：`xian` 同时是
+`xian`（先）与 `xi'an`（西安），`fangan` 同时是 `fang'an`（方案）与
+`fan'gan`（反感）。撇号强制断音。不做贪心切分——歧义交由排序层消解。
 
-**精确命中。** 完整键直接查询 1.44M 词条的只读 SQLite 索引
-（主键 `(key, text)`，常驻预编译语句）。
+**精确命中。** 完整键直接查 1,440,094 条只读 SQLite 索引（主键
+`(key, text)`，常驻预编译语句）。
 
-**句子束搜索。** 键没有整词命中时（如 `jilindaxuelajixuexiao`），
-束搜索沿键逐段扩展：每个位置查询以该位置开头的全部词典前缀
-（键区间探测提前终止），束宽 64，按分数均值剪枝。段分数为
+**句子束搜索。** 键无整词命中时（`jilindaxuelajixuexiao`），束搜索沿键逐段
+扩展，束宽 64。段的来源有四类：全拼词典命中、缩写码命中（§2.1）、句中拉丁
+词、尾部拉丁补全。示例 `jilindaxuelajixuexiao → 吉林大学垃圾学校` 即由
+吉林大学 + 垃圾 + 学校 三段拼出——词库中并无该词条。
 
-$$s(\text{seg}) = \ln(1 + w) + 0.35 \cdot |\text{key}| - \mathbb{1}[|\text{key}| = 1] \cdot 8$$
+### 2.1 缩写码
 
-其中 $w$ 是词频权重；末项惩罚单字母词条（嗯 `n`、呣 `m`），否则
-`fan` 会被"发嗯"这类合法但荒谬的拼接碾压。示例
-`jilindaxuelajixuexiao → 吉林大学垃圾学校` 就是束搜索现场把
-吉林大学 + 垃圾 + 学校 三段接出来的——词库里并没有这个词条。
+真实的快速输入并不逐字母写全。为覆盖它，词库为每个词条预存两个附加码：
 
-**简拼（缩写）。** 词库为每个词条预存声母串（北京会议 → `bjhy`），
-以 `(abbrev, weight)` 复合索引支持按词频降序的免排序查询。两种用法：
-整键简拼直接出词（`jldx` → 吉林大学、`zgrm` → 中国人民）；束搜索的
-每个位置还可以把**剩余尾串**当声母展开（`beijinghy` → 北京 + 还有）。
-门控规则防止简拼污染全拼：键本身能完整切分成拼音时，尾部简拼扩展整个
-关闭（`fan` 永远是 饭，不会长出 发+你），整键简拼解释也只以低分陪跑。
-
-**拉丁词汇。** 约 260 条精选词条（带大小写还原：`claude → Claude`、
-`gdp → GDP`、`xswl`）与 macOS 系统 20 万词表（懒加载）并入候选。
-排序规则：键同时是合法拼音时中文优先（`ai` → 爱 第一、AI 前几名）；
-键无真实词条对应时专名置顶（`openai` → OpenAI，而不是"哦喷爱"）。
-
-## 3. 打分：三项混合与上下文校准
-
-最终分数为
-
-$$S(c) = B_{\text{lex}}(c, x) \;+\; \lambda(h) \cdot L_{\text{Qwen}}(c \mid h) \;+\; U(c)$$
-
-**词典项 $B_{\text{lex}}$**：词频、词长与整词奖励的组合，保证没有模型
-时排序仍然合理。
-
-**模型项 $L_{\text{Qwen}}$**：候选接在前文后的对数概率，全候选共享
-前缀、一批解码得到；按 $\sqrt{\text{token数}}$ 归一，避免 BPE 切分
-碎的候选被系统性低估。
-
-**上下文校准 $\lambda(h)$**：有前文取 0.42，无前文取 0.25。依据是一个
-实测现象：冷启动时模型的偏好主要反映语体风格而非用户意图——对
-`laji`，无前文的 Qwen 更喜欢网络写法"辣鸡"（logP 差约 2.1），而词频
-证据 8:1 支持"垃圾"。降低冷启动权重后词频占上风；一旦有了前文
-（"我真的受够了……"），模型自己也倒向"垃圾"，高权重顺理成章。
-证据多，话语权大；证据少，先验说了算——这就是校准的全部内容。
-
-**个人先验 $U$**：选中计数按使用时钟指数衰减（时间常数 200 次提交），
-被跳过的默认候选轻微减分。存储为 AES-GCM 加密的
-"拼音→词→计数"聚合，密钥在 Keychain，永不出机。
-
-**LoRA 个性化（可选的第四层）**：`scripts/train_lora.sh` 把选择记录
-导出为语料，在本机用 mlx-lm 对 Qwen3-0.6B-Base 做 LoRA 微调
-（rank 8、8 层、lr 1e-5，仅 0.24% 参数可训），再把适配器融合进基座、
-转成 GGUF、量化回 Q4_K_M；守护进程在下一次懒加载时自动改用个人模型。
-
-选择"融合整模"而不是挂载适配器，是被工具链逼出来的：mlx 的适配器格式
-与 llama.cpp 的 GGUF 适配器格式不通用，而 mlx-lm 自带的 `--export-gguf`
-不支持 qwen3 架构。于是链路走 mlx-lm 融合 → llama.cpp
-`convert_hf_to_gguf.py` → `llama-quantize`。转换器固定在 llama.cpp
-b6500——这是该脚本仍是单文件、且已认识 Qwen3 的最后一个 tag（更新的
-版本把它拆成了多文件包）；GGUF 向前兼容，所以 b6500 产出的模型在做
-推理的新版 llama.cpp 里照常加载。推理层同时保留标准 GGUF 适配器入口
-（`BILING_LORA_PATH`，$W + s \cdot BA$），供已有转换产物的用户。
-
-删除个人模型文件即回退，词频先验与 LoRA 互不依赖。
-
-## 4. 上下文从哪来：读光标前的真实文本
-
-传统输入法只有两种"上下文"：没有，或者仅限本会话自己上屏过的字。
-笔灵每次组词开始时通过 InputMethodKit 向宿主应用读取一次
-**光标前至多 600 个字符**（`attributedSubstring`），作为 $h$ 直接
-喂给模型；不支持该接口的客户端（如 Terminal）自动退回会话内已提交
-文本。效果可以直接测量——同一串拼音，前文不同，第一候选不同：
-
-| 光标前的文本 | 输入 | 第一候选 |
+| 码 | 定义 | 例 |
 |---|---|---|
-| 他这辈子行医救人，是一位好 | `yisheng` | 医生 |
-| 这句话让我受用 | `yisheng` | 一生 |
-| 我突然 | `xiangqi` | 想起 |
-| 爷爷最喜欢下 | `xiangqi` | 象棋 |
-| 我们在化学课上做 | `shiyan` | 实验 |
-| 他违背了当初的 | `shiyan` | 誓言 |
+| `abbrev` | 全部声母 | 大学 → `dx`，吉林大学 → `jldx` |
+| `mixed` | 首音节全拼 + 其余声母 | 没有 → `meiy`，空调 → `kongt` |
 
-（六行均为安装版实测；复现：`biling-cli --xpc --context "<前文>" <拼音>`。）
+两者各建 `(码, 权重)` 复合索引，使"按词频降序取前 k"成为免排序的索引扫描。
+词级组合即可覆盖常见输入：`jilin·dx·meiy·kongt` = 吉林·大学·没有·空调。
 
-每次组词只读一次也是效率决策：组词期间 $h$ 不变，守护进程的 KV
-前缀缓存可以持续命中（§5）。
+**实现陷阱（值得记录）。** `mixed` 索引建为部分索引（`WHERE mixed <> ''`，
+因单音节词的 `mixed` 与 `key` 重复）。若查询写作 `WHERE mixed = ?`，SQLite
+无法证明 `? <> ''`，于是**放弃索引、全表扫描 144 万行**——单次查询约 12 ms，
+整句退化到 3035 ms。在查询中补上 `AND mixed <> ''` 后回到 14.2 ms，
+**214× 差距，仅因谓词写法**。
 
-## 5. 推理效率：让 28 毫秒成为常态
+**格上的剪枝。** 束搜索按**结束位置分组**剪枝，而非全局取前 k。分数是对数
+概率之和，消耗输入更少的路径必然分数更高，全局单一阈值因而会系统性地丢弃
+推进得更远的路径。只比较到达同一位置的路径是格搜索的标准形式，也是让 大学
+与 东西 这类真正的替代读法同时存活、交由后续重排裁决的关键——该项修正使
+缩写混排的 top-5 覆盖率从 33.3% 升至 50.0%，完整系统 top-1 从 81.9% 升至
+83.3%。
 
-单次重排 = 一次前缀解码（仅当上下文变化）+ 一批候选续写解码 +
-每行一次全词表 softmax。三个针对性优化：
+**门控。** 全部缩写与句中拉丁匹配都以"整串不能被完整切分为拼音"为前提。这
+保证普通中文输入的行为逐字节不变：`fan` 永远是 饭，不会长出 发+你；
+`shanghai`（同时是英文词）永远是 上海。
 
-1. **KV 前缀缓存**。上下文 token 驻留序列 0，跨请求比较最长公共前缀，
-   只解码新增后缀；上下文裁剪带滞回（3072 字符收缩到 1536），窗口在
-   两次裁剪之间字节稳定。组词期间上下文不变——解码量为零。
-2. **共享前缀批量打分**。16 个候选经 `llama_memory_seq_cp` 共享同一
-   前缀 KV（统一缓存下零拷贝），续写 token 合成一个 batch 一次
-   `llama_decode`。
-3. **向量化 softmax**。151,936 维 logits 的 log-sum-exp 用 Accelerate
-   （`vDSP_maxv` / `vvexpf` / `vDSP_sve`）计算，替换掉此前每键上千万
-   次的标量 `exp` 循环。
+## 3. 打分：一个尺度
 
-![各阶段实测延迟](theory-latency.svg)
+### 3.1 先前设计为何失败
+
+1.3.0 之前，每个候选来源各有一套自造分数：整词命中用
+`log1p(weight) + 词长奖励 + 整词奖励`，缩写用 `log1p(weight) + 10`，句子用
+`束分数 / 段数 + 2`，字面串用常数 `18` 或 `100`，学习项用
+`24 + log1p(c) × 4`。这些量纲互不相通，于是每修一个 case 就要发明一个新
+常数，而新常数又破坏旧 case。在实现混合语言与缩写输入时该模式直接失效：
+为让某个例子通过而调参，反而使 `vscode` 崩溃、`ai` 退化为字面串。
+**根因不是常数取值不对，而是根本不存在可比的尺度。**
+
+### 3.2 统一的对数概率模型
+
+现在所有候选都是同一生成故事下的对数概率：用户选定了一串词，并以某种形式
+键入每一个。
+
+$$\text{score}(\text{path}) = \sum_i \Big[ \log P(w_i) + \log P(f_i) \Big]$$
+
+其中 $\log P(w) = \log(\text{weight}) - \log(\text{总权重})$（两者均在建库时
+写入元数据），$\log P(f)$ 为书写形式的先验：
+
+$$P(\text{全拼}) = 0.80,\quad P(\text{混合}) = 0.13,\quad P(\text{纯声母}) = 0.07$$
+
+三个此前需要显式规则的性质自动成立：
+
+- **段数少者胜。** 每多一段就多付一次 $-\log(\text{总权重})$，于是
+  北京 + 还有 自然击败 被 + 尽管 + 还有，无需任何"优先长词"规则；
+- **缩写是回退而非平级。** 缩写段付出缩写的对数几率，因此只要存在写全的
+  读法，写全者胜；而在没有任何全拼读法时，缩写读法仍胜过无解；
+- **拉丁词平等参赛。** 它们经同一 unigram 模型以"伪词频"入场（写全 20 000、
+  精选表展开 6 000、系统词典猜测 300），而非绝对概率——后者会让任意英文词
+  压过所有中文词。
+
+**不再除以段数。** 对数概率之和已是整条路径的概率；除以段数恰好抵消掉分词
+所依赖的长度偏好。这是旧实现中一个隐蔽而致命的错误。
+
+**字面串。** 建模为"想要拉丁输出的先验 × 字母的均匀模型"：
+
+$$\log P(\text{literal}) = \log(0.005) + n \log(1/26)$$
+
+长度项是关键：单一常数无法同时做到"短的乱码串仍可上屏"与"长句面前毫无胜算"。
+先验 0.005 由语料扫描确定（§4.4），非目测。
+
+### 3.3 个性化与模型混合
+
+用户为某个键选过的词，其对数概率锚定在**语料中最高词频**上，因此一次有意的
+选择至少与最常见读法等价——这正是"改一次，下次就记住"的来源——重复选择再在
+此基础上缓慢攀升。
+
+模型分数与词典分数按对数线性混合，无任何来源加成：
+
+$$\text{final} = \text{score}_{\text{lex}} + \lambda(h) \cdot \text{score}_{\text{LM}},\qquad
+\lambda = \begin{cases} 0.50 & \text{有前文} \\ 0.30 & \text{无前文}\end{cases}$$
+
+有前文时模型握有真实证据，话语权更大；冷启动时它的偏好多为语体风格，词频
+应当占优。
+
+## 4. 实验
+
+### 4.1 设置
+
+**语料**：`Tests/Corpus/eval.tsv`，72 条人工标注条目，覆盖九类现象：整句组合、
+中英混排、缩写混排、上下文消歧、整串简拼、多音字、常用词、单音节、纯拉丁键。
+每条为 `(类别, 前文, 按键串, 期望结果)`。中英边界空格在比对时归一化。
+
+**指标**：top-1 / top-5 准确率、MRR，以及每条端到端延迟（含候选生成与模型
+重排）。
+
+**环境**：Apple M5 / 16 GB / macOS 26.5，Qwen3-0.6B-Base Q4_K_M，
+llama.cpp b9890 + Metal。
+
+**复现**：
+
+```bash
+.build/release/biling-cli --evaluate Tests/Corpus/eval.tsv --engine-only --no-context   # A
+.build/release/biling-cli --evaluate Tests/Corpus/eval.tsv --engine-only                # B
+.build/release/biling-cli --evaluate Tests/Corpus/eval.tsv --no-context                 # C
+.build/release/biling-cli --evaluate Tests/Corpus/eval.tsv                              # D
+```
+
+### 4.2 主结果（消融）
+
+| 条件 | 语言模型 | 前文 | top-1 | top-5 | MRR | 中位延迟 | p95 |
+|---|---|---|---|---|---|---|---|
+| A 仅词典 | ✗ | ✗ | 76.4% | 91.7% | 0.832 | **0.4 ms** | 4.6 ms |
+| B 仅词典 + 前文 | ✗ | ✓ | 76.4% | 91.7% | 0.832 | 0.4 ms | 4.6 ms |
+| C + Qwen | ✓ | ✗ | 79.2% | 91.7% | 0.845 | 24.0 ms | 39.5 ms |
+| D **完整系统** | ✓ | ✓ | **83.3%** | **91.7%** | **0.875** | 24.9 ms | 38.6 ms |
+
+A 与 B 完全相同——确定性层按设计对前文不敏感，这正是"前文的全部收益都来自
+模型"的对照。模型本身贡献 +2.8 点（A→C），**把前文交给模型再贡献 +4.1 点（C→D）**。
+
+### 4.3 分类别结果与前文的作用
+
+| 类别 | n | A 仅词典 | D 完整系统 | Δ |
+|---|---|---|---|---|
+| 上下文消歧 | 11 | 54.5% | **81.8%** | **+27.3** |
+| 中英混排 | 5 | 40.0% | 60.0% | +20.0 |
+| 缩写混排 | 6 | 0.0% | 33.3% | +33.3 |
+| 整句组合 | 10 | 70.0% | 80.0% | +10.0 |
+| 整串简拼 | 5 | 100% | 100% | 0 |
+| 多音字 | 8 | 100% | 100% | 0 |
+| 常用词 | 14 | 100% | 100% | 0 |
+| 单音节 | 8 | 100% | 87.5% | −12.5 |
+| 纯拉丁键 | 5 | 100% | 80.0% | −20.0 |
+
+**上下文消歧类的 +27.3 点是本文主张的直接测量。** 该类每两条共用一个按键串、
+只有前文不同（`yisheng` 在"他这辈子行医救人，是一位好"之后应为 医生，在
+"这句话让我受用"之后应为 一生）。传统输入法在这一类上的上限就是按词频固定选
+一个，约 50%；实测词典层 54.5%，完整系统 81.8%。
+
+**负面结果同样如实报告**：单音节与纯拉丁键两类，加入模型后反而下降
+（100% → 87.5% / 80.0%）。这些输入上模型几乎没有可用证据（无前文、候选极短），
+其偏好构成噪声。这提示"模型权重应随证据量缩放"，是明确的后续工作；本版本未做
+该特化。
+
+### 4.4 参数标定
+
+字面串先验按语料扫描确定，而非目测单个例子：
+
+| 先验 | 0.02 | 0.005 | 0.001 | 0.0002 |
+|---|---|---|---|---|
+| top-1 | 75.0% | **76.4%** | 76.4% | 76.4% |
+
+0.005 以下进入平台期，取平台边缘的 0.005（语义上约"0.5% 的输入意在拉丁字面"）。
+修正该项使整体 top-1 从 73.6% 升至 76.4%。
+
+### 4.5 延迟与常驻成本
 
 | 阶段 | 实测 | 条件 |
 |---|---|---|
-| 词典引擎（21 键整句） | 2.8 ms | `--engine-only`，同步路径 |
-| Qwen 重排 · 上下文未变 | 28.5 ms | 组词中的每一键（KV 全命中） |
-| Qwen 重排 · 上下文新增一句 | 44.7 ms | 提交后第一键（解码新后缀） |
-| Qwen 重排 · 冷上下文 | 61.8 ms | 换输入框后第一键 |
-| 对照：1.2.0 每一键 | ≈ 62 ms 起 | 每键清 KV + 标量 softmax |
+| 词典引擎（同步路径中位） | 0.4 ms | 全语料 |
+| 词典引擎 p95 | 4.6 ms | 长整句 |
+| Qwen 重排（上下文未变） | 28.5 ms | 组词中每一键，KV 全命中 |
+| Qwen 重排（上下文新增） | 44.7 ms | 提交后第一键 |
+| Qwen 重排（冷上下文） | 61.8 ms | 换输入框后第一键 |
+| 守护进程常驻（模型已载） | 636 MB | 其中约 400 MB 为 mmap 干净页 |
+| 守护进程空闲 10 分钟后 | ≈ 6 MB | 自动卸载 |
 
-测量环境：Apple M5 / 16 GB / macOS 26.5，Qwen3-0.6B-Base Q4_K_M，
-已安装 XPC 服务，`jilindaxuelajixuexiao`（16 候选）。
-
-## 6. 常驻的代价：能耗与内存
-
-输入法是永续后台进程，笔灵的原则是**空闲成本必须趋近于零**：
-
-- 无任何定时器：不做周期健康检查、不轮询状态，事件驱动重连；
-- 模型懒加载，空闲 10 分钟整体卸载，守护进程回落到数 MB；
-- 权重 mmap：636 MB 驻留中约 400 MB 是干净页，内存压力下系统可直接
-  回收；
-- 低电量模式下自动把会话切给苹果拼音（未启用时退化为纯词典模式）。
+![各阶段实测延迟](theory-latency.svg)
 
 ![守护进程内存状态](theory-memory.svg)
 
-诚实的对比：**待机时**笔灵与系统拼音都接近零消耗；**持续打字时**
-笔灵每键多付一次约 20–30 ms 的 GPU 脉冲——这是上下文排序的直接
-成本，系统拼音没有这一步。绝对差值小（打字不是持续负载），且真正
-需要省电时笔灵会自动让位。
+单次重排 = 一次前缀解码（仅当上下文变化）+ 一批候选续写解码 + 每行一次全词表
+softmax。三项优化使其从 60–140 ms 降到 28.5 ms：KV 前缀缓存跨按键复用（组词
+期间上下文不变，解码量为零）、16 个候选经 `llama_memory_seq_cp` 共享同一前缀
+KV 后合成单个 batch、151 936 维 logits 的 log-sum-exp 用 Accelerate 向量化。
 
-## 7. 与已有路线的关系
+空闲成本按设计趋近于零：无任何定时器（不做周期健康检查、不轮询状态），模型
+懒加载并在空闲 10 分钟后整体卸载，低电量模式自动把会话让给系统拼音。
 
-- **传统 n-gram 输入法**（librime 等）：候选完整性与毫秒延迟的标杆，
-  笔灵的词典层和用户词频衰减公式直接继承这条路线；差别在它们的
-  $P(c \mid h)$ 只有二三元窗口，且从不读取输入框已有内容。
-- **云端大模型输入法**：上下文理解强，但按键逐次上传、断网退化、
-  延迟受网络支配。笔灵证明 0.6B 本地模型在"排序"这个受约束任务上
-  已经够到同类体验。
-- **学术原型**：把冻结 GPT 用于拼音约束解码的 PinyinGPT
-  （[arXiv:2203.00249](https://arxiv.org/abs/2203.00249)）、生成式
-  输入范式 GeneInput（[arXiv:2311.01166](https://arxiv.org/abs/2311.01166)）、
-  端侧 Qwen3-0.6B 输入法 HuoziIME
-  （[arXiv:2604.14159](https://arxiv.org/html/2604.14159v1)）、以及
-  社区实现 [lime](https://github.com/xushengfeng/lime)。笔灵的差异
-  点：模型严格移出按键路径（词典兜底）、读取宿主输入框上下文、
-  上下文校准的混合打分、以及以能耗为一等公民的工程化
-  （KV 复用 / 空闲卸载 / 零轮询）。
+## 5. 误差分析
 
-## 8. 局限与下一步
+完整系统（D）的 12 个 top-1 误差分布：
 
-- **简拼只做了保守的两档**（整键简拼 + 尾部简拼）：任意位置的混合
-  简拼（`bj` + `daxue` + `hy` 交错）尚未展开——先行研究一致表明这是
-  准确率悬崖，全开会把候选质量拖垮；
-- **LoRA 训练数据目前是选择记录**（短语级），不是完整语句流——这是
-  隐私设计的直接后果（笔灵不存句子），个性化上限相应受限；训练效果
-  没有自动评估门槛，靠删除文件回退兜底；
-- 模型只重排前 16 个候选，后页仍是纯词频序；
-- 束搜索的段级独立性假设偶尔产生不自然的长句拼接，靠模型重排兜底。
+- **缩写混排（4 例）**：主要误差来源。`dx` 同时是 大学 与 东西 的声母码，
+  `tq` 同时是 天气 与 提前；词典层按词频选错，模型在无前文时也难以纠正。该类
+  正确答案常落在第 2–5 位，即用户需翻页一次。
+- **同音虚词（4 例）**：的/得/地、在/再、个/给。这类差异在语料词频上几乎不可
+  分，需要更强的上下文建模。
+- **拉丁与单音节（3 例）**：§4.3 所述的模型噪声。
+- **覆盖缺失（1 例）**：`我在poly学的累死` 中 累死 词频远低于 类似，且 `poly`
+  作为独立英文词与 `polytechnic` 的补全存在真实歧义。
 
-## 复现清单
+## 6. 与既有工作的关系
+
+- **传统 n-gram 输入法**（librime 等）：候选完整性与毫秒级延迟的标杆，本系统的
+  词典层与用户词频衰减公式直接继承这一路线；差别在于其 $P(c \mid h)$ 只有二三元
+  窗口，且从不读取输入框中已有的内容。
+- **云端大模型输入法**：上下文理解强，代价是按键逐次上传、断网退化、延迟受网络
+  支配。本文结果表明，在"排序"这一受约束任务上，0.6B 本地模型已足以取得同类收益。
+- **学术工作**：PinyinGPT（[arXiv:2203.00249](https://arxiv.org/abs/2203.00249)）
+  以冻结 GPT 做拼音约束解码，并指出简拼是准确率悬崖——本文 §4.3 的缩写混排结果与
+  之一致；GeneInput（[arXiv:2311.01166](https://arxiv.org/abs/2311.01166)）提出
+  生成式输入范式；HuoziIME（[arXiv:2604.14159](https://arxiv.org/html/2604.14159v1)）
+  同样在端侧运行 Qwen3-0.6B；社区实现 [lime](https://github.com/xushengfeng/lime)
+  验证了以拼音过滤 next-token 分布的可行性。
+- **本文差异点**：模型严格移出按键路径并以词典兜底；读取宿主应用光标前的真实文本
+  作为上下文；所有候选来源统一到单一对数概率尺度；以及在标注语料上的消融测量，
+  而非示例演示。
+
+## 7. 局限
+
+- **缩写混排 33.3%** 是当前最大短板，与先行研究结论一致：任意位置的混合简拼会让
+  候选空间爆炸。当前实现只覆盖"整串声母"与"首音节全拼 + 其余声母"两种码型，未做
+  任意位置的逐音节混合。
+- **模型权重不随证据量缩放**，导致短输入上出现负收益（§4.3）。
+- **语料规模有限**（72 条，作者标注），足以做消融对照，不足以支撑与商业输入法的
+  横向比较；且标注者即作者，存在选择偏差。
+- **LoRA 个性化的训练数据是选择记录**（短语级）而非完整语句流，这是隐私设计的直接
+  后果（系统不存储句子），个性化上限相应受限。
+- 束搜索的段级独立性假设偶尔产生不自然的长句拼接，依赖模型重排兜底。
+
+## 8. 复现清单
 
 ```bash
-swift test                                            # 25 项测试
-.build/release/biling-cli --engine-only jilindaxuelajixuexiao   # 2.8 ms 词典
-.build/release/biling-cli --engine-only jldx          # 简拼 → 吉林大学
-biling-cli --xpc jilindaxuelajixuexiao                # 完整链路
-biling-cli --xpc --context "爷爷最喜欢下" xiangqi      # 上下文翻转
-./scripts/train_lora.sh --iters 200                   # 本地 LoRA 个性化
+swift test                                                    # 25 项单元测试
+.build/release/biling-cli --evaluate Tests/Corpus/eval.tsv --engine-only --no-context
+.build/release/biling-cli --evaluate Tests/Corpus/eval.tsv    # 完整系统
+.build/release/biling-cli --engine-only jilindaxuelajixuexiao # 词典层单独
+biling-cli --xpc --context "爷爷最喜欢下" xiangqi              # 上下文翻转
+./scripts/train_lora.sh --iters 200                           # 本地 LoRA
 ```
 
-数据、图表与本文所有断言均可由上述命令在本仓库当前提交上复现。
+原始评测输出保存在 [`Docs/results/evaluation-1.3.0.txt`](results/evaluation-1.3.0.txt)。
+
+## 附录 A：LoRA 个性化链路
+
+`scripts/train_lora.sh` 导出选择记录、用 mlx-lm 对 Qwen3-0.6B-Base 做 LoRA 微调
+（rank 8、8 层、lr 1e-5，可训参数 0.24%），融合进基座后转 GGUF 并量化回 Q4_K_M；
+守护进程在下一次懒加载时自动改用个人模型。
+
+选择"融合整模"而非挂载适配器是被工具链决定的：mlx 适配器与 llama.cpp 的 GGUF
+适配器格式不通用，而 mlx-lm 自带的 `--export-gguf` 不支持 qwen3 架构。转换器固定
+在 llama.cpp **b6500**——该脚本仍为单文件且已认识 Qwen3 的最后一个 tag（更新版本
+将其拆为多文件包）；GGUF 向前兼容，故其产物在做推理的新版 llama.cpp 中照常加载。
+推理层同时保留标准 GGUF 适配器入口（`BILING_LORA_PATH`，$W + s \cdot BA$）。删除
+个人模型文件即回退。
+
+30 步验证运行：验证损失 5.776 → 3.819，产出模型在 `爷爷最喜欢下` 后对 象棋 给出
+−2.015，与出厂模型的 −2.433 不同，确认微调权重确实生效。
