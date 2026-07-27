@@ -32,8 +32,10 @@ enum InputSourceRegistration {
             }
             guard sourceIdentifier == modeIdentifier else {
                 // Enable only the input *mode*, never the parent method.
-                // Enabling both makes macOS list 笔灵 twice in the input menu,
-                // once for the method and once for the mode it contains.
+                // Enabling both is what put 笔灵 in the input menu more than
+                // once. (macOS marks the parent enabled by itself once a mode
+                // is on; that flag is a container property, not a second menu
+                // entry, and trying to clear it does nothing.)
                 continue
             }
             guard isASCIICapable(source) == false else {

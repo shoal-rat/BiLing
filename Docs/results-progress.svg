@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="560" viewBox="0 0 1240 560" role="img" aria-labelledby="title description">
+  <title id="title">准确率随每次改动的变化，以及与系统输入法的差距</title>
+  <desc id="description">在推导语料上，top-1 准确率从 22.9% 提升到 44.2%；与 macOS 自带拼音在同一批 260 条上的差距从 18.5 个百分点缩小到 10.4 个百分点。</desc>
+  <style>
+    .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .ink { fill: #2A3038; } .muted { fill: #6E6F66; } .verm { fill: #C74A34; } .indigo { fill: #41628A; }
+  </style>
+  <rect width="1240" height="560" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1239" height="559" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="56" class="sans ink" font-size="24" font-weight="700">每一步改动带来的准确率变化</text>
+  <text x="60" y="82" class="sans muted" font-size="14">推导语料（新闻句 round-trip，非人工挑选），top-1，完整系统。参数只在 dev 上标定。</text>
+
+  <!-- axis -->
+  <line x1="330" y1="110" x2="330" y2="400" stroke="#DCD5C4"/>
+  <g class="mono muted" font-size="11">
+    <text x="330" y="420">0</text><text x="490" y="420">10</text><text x="650" y="420">20</text>
+    <text x="810" y="420">30</text><text x="970" y="420">40</text><text x="1120" y="420">50%</text>
+  </g>
+  <g stroke="#E8E2D2"><line x1="490" y1="110" x2="490" y2="405"/><line x1="650" y1="110" x2="650" y2="405"/>
+    <line x1="810" y1="110" x2="810" y2="405"/><line x1="970" y1="110" x2="970" y2="405"/><line x1="1130" y1="110" x2="1130" y2="405"/></g>
+
+  <!-- bars: scale 16px per percentage point -->
+  <g class="sans">
+    <text x="320" y="140" text-anchor="end" class="ink" font-size="13">起点（束搜索、95K 二元）</text>
+    <rect x="330" y="126" width="366" height="20" rx="2" fill="#B8B2A0"/>
+    <text x="706" y="141" class="mono ink" font-size="12">22.9%</text>
+
+    <text x="320" y="180" text-anchor="end" class="ink" font-size="13">＋按位置剪枝</text>
+    <rect x="330" y="166" width="384" height="20" rx="2" fill="#8FA5B8"/>
+    <text x="724" y="181" class="mono ink" font-size="12">24.0%</text>
+
+    <text x="320" y="220" text-anchor="end" class="ink" font-size="13">＋证据缩放的模型权重</text>
+    <rect x="330" y="206" width="488" height="20" rx="2" fill="#7396B5"/>
+    <text x="828" y="221" class="mono ink" font-size="12">30.5%</text>
+
+    <text x="320" y="260" text-anchor="end" class="ink" font-size="13">＋精确 Viterbi ＋ A* n-best</text>
+    <rect x="330" y="246" width="518" height="20" rx="2" fill="#5C87AE"/>
+    <text x="858" y="261" class="mono ink" font-size="12">32.4%</text>
+
+    <text x="320" y="300" text-anchor="end" class="ink" font-size="13">＋1.7M 句训练的转移模型</text>
+    <rect x="330" y="286" width="528" height="20" rx="2" fill="#41628A"/>
+    <text x="868" y="301" class="mono ink" font-size="12">33.0%</text>
+
+    <text x="320" y="340" text-anchor="end" class="ink" font-size="13">＋缩写扇入 3→60</text>
+    <rect x="330" y="326" width="603" height="20" rx="2" fill="#34527A"/>
+    <text x="943" y="341" class="mono ink" font-size="12">37.7%</text>
+
+    <text x="320" y="380" text-anchor="end" class="ink" font-size="13" font-weight="600">＋三元重打分（dev）</text>
+    <rect x="330" y="366" width="622" height="20" rx="2" fill="#C74A34"/>
+    <text x="962" y="381" class="mono ink" font-size="12" font-weight="600">38.9%</text>
+  </g>
+
+  <text x="60" y="452" class="sans muted" font-size="13">留出 test 集（全程未参与调参）：仅词典 37.5%，完整系统 <tspan class="verm" font-weight="600">44.2%</tspan>，top-5 52.5%，覆盖率 58.9%。</text>
+
+  <!-- Apple gap -->
+  <line x1="60" y1="480" x2="1180" y2="480" stroke="#DCD5C4"/>
+  <text x="60" y="510" class="sans ink" font-size="15" font-weight="600">与 macOS 自带拼音的差距（同一批 260 条，双方均无前文）</text>
+  <text x="60" y="534" class="sans muted" font-size="13">
+    起始 <tspan class="mono">42.3%</tspan> 对 <tspan class="mono">60.8%</tspan>（差 18.5）　→　现在 <tspan class="mono verm" font-weight="600">50.4%</tspan> 对 <tspan class="mono">60.8%</tspan>（差 <tspan class="verm" font-weight="600">10.4</tspan>）。
+    全拼差 6.0，重度缩写已持平，差距集中在中度缩写输入。
+  </text>
+</svg>
