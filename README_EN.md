@@ -177,8 +177,9 @@ installs it under `~/Library/Application Support/BiLing/adapters/`. The
 daemon switches to the personal model on its next load and the status
 line gains a "个人模型" marker.
 
-- The first run downloads the base model (~1.2 GB, once) and builds a
-  private Python venv;
+- The first run builds a private Python venv and downloads the base model
+  (~1.2 GB) plus conversion dependencies (mlx-lm, torch, gguf; ~1 GB) —
+  all one-time;
 - Your selections are the training data — with fewer than 16 lines the
   script refuses; type normally for a few days first;
 - **Rollback**: delete `adapters/qwen-personal-q4_k_m.gguf` and

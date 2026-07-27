@@ -77,10 +77,21 @@ if (( lines < 16 )); then
   exit 65
 fi
 
-print "Training LoRA for $iters iterations on $lines lines…"
 # The Hub's Xet transfer backend fails intermittently behind some networks;
 # the classic resumable HTTP path is slower but dependable.
 export HF_HUB_DISABLE_XET=1
+
+# Fetch the *complete* base-model snapshot up front. mlx_lm's own loader
+# pulls only weights and config, but its fuse step later demands a complete
+# cached snapshot (local_files_only=True) and fails on the handful of
+# metadata files it never asked for. These are a few KB.
+print "Preparing the base model…"
+"$python" - <<'PY'
+from huggingface_hub import snapshot_download
+snapshot_download("Qwen/Qwen3-0.6B-Base")
+PY
+
+print "Training LoRA for $iters iterations on $lines lines…"
 "$python" -m mlx_lm lora \
   --model Qwen/Qwen3-0.6B-Base \
   --train \
@@ -91,20 +102,47 @@ export HF_HUB_DISABLE_XET=1
   --iters "$iters" \
   --learning-rate 1e-5
 
-print "Fusing the adapter and exporting GGUF…"
+print "Fusing the adapter into the base weights…"
+# mlx_lm's own --export-gguf only covers llama/mixtral, so fuse to
+# safetensors and hand the conversion to llama.cpp's converter below.
 "$python" -m mlx_lm fuse \
   --model Qwen/Qwen3-0.6B-Base \
   --adapter-path "$work/adapter" \
-  --save-path "$work/fused" \
-  --export-gguf \
-  --gguf-path "$work/personal-f16.gguf"
+  --save-path "$work/fused"
+
+# llama.cpp's converter ships with its source, not the Homebrew binary
+# package, so fetch and cache it once. Pinned to b6500: the last tag where
+# convert_hf_to_gguf.py is a single self-contained file that already knows
+# Qwen3. Newer tags split it across a `conversion/` package that a one-file
+# download cannot satisfy. GGUF is forward-compatible, so output from this
+# converter loads fine in the newer llama.cpp doing inference.
+tools_dir="$support/tools"
+converter="$tools_dir/convert_hf_to_gguf.py"
+converter_tag="b6500"
+if [[ ! -f "$converter" ]]; then
+  mkdir -p "$tools_dir"
+  print "Fetching llama.cpp $converter_tag's GGUF converter (one-time)…"
+  if ! curl -fsSL -o "$converter.tmp" \
+    "https://raw.githubusercontent.com/ggml-org/llama.cpp/$converter_tag/convert_hf_to_gguf.py"; then
+      print -u2 "Could not download convert_hf_to_gguf.py ($converter_tag)."
+      exit 69
+  fi
+  mv "$converter.tmp" "$converter"
+fi
+# mistral_common is imported unconditionally by that converter even for
+# non-Mistral models, so it is a hard requirement here.
+if ! "$python" -c "import gguf, torch, mistral_common" 2>/dev/null; then
+  print "Installing conversion dependencies (one-time, ~1 GB)…"
+  "$python" -m pip install --quiet gguf torch mistral-common
+fi
+
+print "Converting to GGUF…"
+"$python" "$converter" "$work/fused" \
+  --outfile "$work/personal-f16.gguf" \
+  --outtype f16
 fused_gguf="$work/personal-f16.gguf"
 if [[ ! -f "$fused_gguf" ]]; then
-  # Older mlx-lm writes the GGUF inside --save-path instead.
-  fused_gguf=$(ls "$work/fused"/*.gguf 2>/dev/null | head -1 || true)
-fi
-if [[ -z "$fused_gguf" || ! -f "$fused_gguf" ]]; then
-  print -u2 "mlx-lm did not produce a GGUF; check the fuse output above."
+  print -u2 "Conversion did not produce a GGUF; check the output above."
   exit 70
 fi
 

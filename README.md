@@ -146,7 +146,8 @@ App 路径、代码签名有效的 XPC 连接。请求带代次标记，谁过�
 回 Q4_K_M，装入 `~/Library/Application Support/BiLing/adapters/`。
 守护进程在下一次加载时自动改用个人模型，状态行会标注"个人模型"。
 
-- 首次运行需要下载基座模型（约 1.2 GB，仅一次）并自建 Python venv；
+- 首次运行需要自建 Python venv、下载基座模型（约 1.2 GB）与转换依赖
+  （mlx-lm、torch、gguf，约 1 GB），均只发生一次；
 - 训练数据就是你的选择记录，不够 16 条会拒绝训练——先正常打几天字；
 - **回退**：删除 `adapters/qwen-personal-q4_k_m.gguf` 再
   `launchctl kickstart -k "gui/$(id -u)/com.biling.inputmethod.engine"`，

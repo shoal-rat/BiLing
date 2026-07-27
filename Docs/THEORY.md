@@ -98,13 +98,20 @@ $$S(c) = B_{\text{lex}}(c, x) \;+\; \lambda(h) \cdot L_{\text{Qwen}}(c \mid h) \
 "拼音→词→计数"聚合，密钥在 Keychain，永不出机。
 
 **LoRA 个性化（可选的第四层）**：`scripts/train_lora.sh` 把选择记录
-导出为语料，在本机用 mlx-lm 对 Qwen3-0.6B-Base 做 LoRA 微调，融合导出
-GGUF 并量化回 Q4_K_M；守护进程在下一次懒加载时自动改用个人模型。选择
-"融合整模"而非适配器挂载作为默认路径，是因为 mlx 适配器与 llama.cpp
-适配器格式互不兼容，而融合+量化链路完全离线、无 PyTorch 依赖；推理层
-同时保留标准 GGUF 适配器入口（`BILING_LORA_PATH`），供已有转换产物的
-用户以 $W + s \cdot BA$ 方式挂载。删除个人模型文件即回退，词频先验与
-LoRA 互不依赖。
+导出为语料，在本机用 mlx-lm 对 Qwen3-0.6B-Base 做 LoRA 微调
+（rank 8、8 层、lr 1e-5，仅 0.24% 参数可训），再把适配器融合进基座、
+转成 GGUF、量化回 Q4_K_M；守护进程在下一次懒加载时自动改用个人模型。
+
+选择"融合整模"而不是挂载适配器，是被工具链逼出来的：mlx 的适配器格式
+与 llama.cpp 的 GGUF 适配器格式不通用，而 mlx-lm 自带的 `--export-gguf`
+不支持 qwen3 架构。于是链路走 mlx-lm 融合 → llama.cpp
+`convert_hf_to_gguf.py` → `llama-quantize`。转换器固定在 llama.cpp
+b6500——这是该脚本仍是单文件、且已认识 Qwen3 的最后一个 tag（更新的
+版本把它拆成了多文件包）；GGUF 向前兼容，所以 b6500 产出的模型在做
+推理的新版 llama.cpp 里照常加载。推理层同时保留标准 GGUF 适配器入口
+（`BILING_LORA_PATH`，$W + s \cdot BA$），供已有转换产物的用户。
+
+删除个人模型文件即回退，词频先验与 LoRA 互不依赖。
 
 ## 4. 上下文从哪来：读光标前的真实文本
 
