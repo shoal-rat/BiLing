@@ -29,12 +29,17 @@ public final class DictTrie: @unchecked Sendable {
     public private(set) var logTotalWeight: Double = 22.0
     /// log of the largest corpus weight; anchors personalised entries.
     public private(set) var logMaxWeight: Double = 16.0
-    /// "previous word\u{1}next word" → P(next | previous), held in memory
-    /// because the beam asks thousands of times per keystroke.
-    private var transitions: [String: Double] = [:]
+    /// Transition tables, keyed by a 64-bit hash of the word sequence rather
+    /// than by the words themselves. The decoder asks thousands of times per
+    /// keystroke so these must be in memory, but string keys cost far more than
+    /// the numbers they index — 1.8M of them held 215 MB, which is not a price
+    /// an always-running input method should pay. Hashing drops that to a
+    /// fraction; over this many entries a 64-bit collision is a ~10⁻⁷ event and
+    /// would cost one candidate one wrong probability, not correctness.
+    private var transitions: [UInt64: Float] = [:]
     public private(set) var transitionCount = 0
     /// "w-2\u{1}w-1\u{1}w" → P(w | w-2, w-1), used to rescore the n-best list.
-    private var trigrams: [String: Double] = [:]
+    private var trigrams: [UInt64: Float] = [:]
     private var unigramByText: [String: Double] = [:]
 
     public init(entries: [LexiconEntry]) {
@@ -259,11 +264,11 @@ public final class DictTrie: @unchecked Sendable {
             &statement,
             nil
         ) == SQLITE_OK, let statement else { return }
-        transitions.reserveCapacity(120_000)
+        transitions.reserveCapacity(800_000)
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let previous = Self.columnText(statement, index: 0),
                   let next = Self.columnText(statement, index: 1) else { continue }
-            transitions[previous + "\u{1}" + next] = sqlite3_column_double(statement, 2)
+            transitions[Self.key(previous, next)] = Float(sqlite3_column_double(statement, 2))
         }
         transitionCount = transitions.count
     }
@@ -282,13 +287,13 @@ public final class DictTrie: @unchecked Sendable {
             guard let a = Self.columnText(statement, index: 0),
                   let b = Self.columnText(statement, index: 1),
                   let c = Self.columnText(statement, index: 2) else { continue }
-            trigrams[a + "\u{1}" + b + "\u{1}" + c] = sqlite3_column_double(statement, 3)
+                trigrams[Self.key(a, b, c)] = Float(sqlite3_column_double(statement, 3))
         }
     }
 
     /// P(next | first, second), or 0 when the triple was never observed.
     public func trigram(_ first: String, _ second: String, _ next: String) -> Double {
-        trigrams[first + "\u{1}" + second + "\u{1}" + next] ?? 0
+        trigrams[Self.key(first, second, next)].map(Double.init) ?? 0
     }
 
     /// Corpus weight of a word by its text, for rescoring a finished path
@@ -317,7 +322,21 @@ public final class DictTrie: @unchecked Sendable {
 
     /// P(next | previous), or 0 when the pair was never observed.
     public func transition(from previous: String, to next: String) -> Double {
-        transitions[previous + "\u{1}" + next] ?? 0
+        transitions[Self.key(previous, next)].map(Double.init) ?? 0
+    }
+
+    /// FNV-1a over the words with a separator, so the table needs no strings.
+    private static func key(_ parts: String...) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for (index, part) in parts.enumerated() {
+            if index > 0 {
+                hash = (hash ^ 0x1f) &* 0x100000001b3
+            }
+            for byte in part.utf8 {
+                hash = (hash ^ UInt64(byte)) &* 0x100000001b3
+            }
+        }
+        return hash
     }
 
     /// Context marker for the first word of a composition.
