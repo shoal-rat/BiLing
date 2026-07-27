@@ -33,6 +33,9 @@ public final class DictTrie: @unchecked Sendable {
     /// because the beam asks thousands of times per keystroke.
     private var transitions: [String: Double] = [:]
     public private(set) var transitionCount = 0
+    /// "w-2\u{1}w-1\u{1}w" → P(w | w-2, w-1), used to rescore the n-best list.
+    private var trigrams: [String: Double] = [:]
+    private var unigramByText: [String: Double] = [:]
 
     public init(entries: [LexiconEntry]) {
         for entry in entries {
@@ -72,6 +75,7 @@ public final class DictTrie: @unchecked Sendable {
             logMaxWeight = parsed
         }
         loadTransitions(handle)
+        loadTrigrams(handle)
         maxKeyLength = max(1, Self.scalarInt(handle, sql: "SELECT MAX(LENGTH(key)) FROM entries;"))
         syllables = SyllableInventory.standard.syllables
         sqlite3_prepare_v2(
@@ -262,6 +266,53 @@ public final class DictTrie: @unchecked Sendable {
             transitions[previous + "\u{1}" + next] = sqlite3_column_double(statement, 2)
         }
         transitionCount = transitions.count
+    }
+
+    private func loadTrigrams(_ handle: OpaquePointer) {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(
+            handle,
+            "SELECT first, second, next, cond FROM trigrams;",
+            -1,
+            &statement,
+            nil
+        ) == SQLITE_OK, let statement else { return }
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let a = Self.columnText(statement, index: 0),
+                  let b = Self.columnText(statement, index: 1),
+                  let c = Self.columnText(statement, index: 2) else { continue }
+            trigrams[a + "\u{1}" + b + "\u{1}" + c] = sqlite3_column_double(statement, 3)
+        }
+    }
+
+    /// P(next | first, second), or 0 when the triple was never observed.
+    public func trigram(_ first: String, _ second: String, _ next: String) -> Double {
+        trigrams[first + "\u{1}" + second + "\u{1}" + next] ?? 0
+    }
+
+    /// Corpus weight of a word by its text, for rescoring a finished path
+    /// where the originating lexicon entry is no longer to hand.
+    public func unigramWeight(of text: String) -> Double {
+        if let cached = unigramByText[text] { return cached }
+        guard let database else { return 1 }
+        let weight: Double = databaseQueue.sync {
+            var statement: OpaquePointer?
+            defer { sqlite3_finalize(statement) }
+            guard sqlite3_prepare_v2(
+                database,
+                "SELECT MAX(weight) FROM entries WHERE text = ?;",
+                -1,
+                &statement,
+                nil
+            ) == SQLITE_OK, let statement else { return 1 }
+            sqlite3_bind_text(statement, 1, text, -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(statement) == SQLITE_ROW else { return 1 }
+            let value = sqlite3_column_double(statement, 0)
+            return value > 0 ? value : 1
+        }
+        unigramByText[text] = weight
+        return weight
     }
 
     /// P(next | previous), or 0 when the pair was never observed.

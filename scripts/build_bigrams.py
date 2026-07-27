@@ -52,12 +52,16 @@ def sentences(path: Path):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--source", type=Path, action="append", required=True,
+                        help="repeatable; all sources are pooled")
     parser.add_argument("--exclude", type=Path, action="append", default=[],
                         help="corpus whose sentences must not be trained on")
     parser.add_argument("--lexicon", type=Path, required=True)
     parser.add_argument("--min-count", type=int, default=3,
                         help="prune transitions rarer than this")
+    parser.add_argument("--min-trigram-count", type=int, default=8,
+                        help="prune trigrams rarer than this; trigrams are far "
+                             "sparser than bigrams and dominate the table size")
     args = parser.parse_args()
 
     try:
@@ -72,9 +76,14 @@ def main() -> None:
 
     unigram: Counter[str] = Counter()
     bigram: Counter[tuple[str, str]] = Counter()
+    # Trigram history counts are kept separately so the conditional can be
+    # normalised by c(w-2, w-1) rather than by a bigram count.
+    history: Counter[tuple[str, str]] = Counter()
+    trigram: Counter[tuple[str, str, str]] = Counter()
     used = skipped = 0
 
-    for sentence in sentences(args.source):
+    for source in args.source:
+      for sentence in sentences(source):
         if sentence in banned:
             skipped += 1
             continue
@@ -83,16 +92,24 @@ def main() -> None:
             if not clause or not CJK.match(clause):
                 continue
             words = [w for w in jieba.cut(clause) if w.strip()]
-            previous = START
+            previous, before = START, START
             for word in words:
                 unigram[previous] += 1
                 bigram[(previous, word)] += 1
-                previous = word
+                history[(before, previous)] += 1
+                trigram[(before, previous, word)] += 1
+                before, previous = previous, word
 
     rows = [
         (prev, nxt, count / unigram[prev])
         for (prev, nxt), count in bigram.items()
         if count >= args.min_count and unigram[prev] > 0
+    ]
+
+    trigram_rows = [
+        (a, b, c, count / history[(a, b)])
+        for (a, b, c), count in trigram.items()
+        if count >= args.min_trigram_count and history[(a, b)] > 0
     ]
 
     database = sqlite3.connect(args.lexicon)
@@ -105,8 +122,17 @@ def main() -> None:
             cond REAL NOT NULL,
             PRIMARY KEY (prev, next)
         ) WITHOUT ROWID;
+        DROP TABLE IF EXISTS trigrams;
+        CREATE TABLE trigrams (
+            first TEXT NOT NULL,
+            second TEXT NOT NULL,
+            next TEXT NOT NULL,
+            cond REAL NOT NULL,
+            PRIMARY KEY (first, second, next)
+        ) WITHOUT ROWID;
         """
     )
+    database.executemany("INSERT OR REPLACE INTO trigrams VALUES (?,?,?,?);", trigram_rows)
     database.executemany("INSERT OR REPLACE INTO bigrams VALUES (?,?,?);", rows)
     database.execute(
         "INSERT OR REPLACE INTO metadata(name, value) VALUES ('bigram_count', ?);",
@@ -120,8 +146,9 @@ def main() -> None:
     print(
         f"trained on {used:,} sentences (skipped {skipped:,} that appear in the "
         f"evaluation source)\n"
-        f"kept {len(rows):,} transitions with count >= {args.min_count} "
-        f"out of {len(bigram):,} observed"
+        f"kept {len(rows):,} bigrams (>= {args.min_count}) of {len(bigram):,} "
+        f"observed, and {len(trigram_rows):,} trigrams "
+        f"(>= {args.min_trigram_count}) of {len(trigram):,}"
     )
 
 

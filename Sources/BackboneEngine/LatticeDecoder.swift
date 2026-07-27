@@ -15,6 +15,15 @@ public struct LatticeEdge: Sendable {
     public let pinyin: String
     public let reading: Reading
 
+    /// Corpus weight when this edge is a lexicon word; a stand-in frequency
+    /// when it is Latin, so both price the same way downstream.
+    public var weight: Double {
+        switch reading {
+        case let .lexicon(weight, _): weight
+        case let .latin(evidence): evidence.pseudoWeight
+        }
+    }
+
     public init(start: Int, end: Int, text: String, pinyin: String, reading: Reading) {
         self.start = start
         self.end = end
@@ -51,6 +60,10 @@ public struct LatticeEdge: Sendable {
 public enum LatticeDecoder {
     public struct Path: Sendable {
         public let text: String
+        public let words: [String]
+        /// Corpus weight of each word, so a rescoring pass does not have to
+        /// look them up again.
+        public let weights: [Double]
         public let pinyin: [String]
         public let score: Double
         public let segments: Int
@@ -136,13 +149,17 @@ public enum LatticeDecoder {
             let accumulated: Double  // g
             let state: State
             let words: [String]      // suffix, front to back
+            let weights: [Double]
             let pinyin: [String]
         }
         var heap = Heap<Partial>(compare: { $0.priority > $1.priority })
         for word in finals {
             let state = State(position: inputLength, word: word)
             guard let score = forward[state] else { continue }
-            heap.push(Partial(priority: score, accumulated: 0, state: state, words: [], pinyin: []))
+            heap.push(
+                Partial(priority: score, accumulated: 0, state: state,
+                        words: [], weights: [], pinyin: [])
+            )
         }
 
         var paths: [Path] = []
@@ -160,6 +177,8 @@ public enum LatticeDecoder {
                     paths.append(
                         Path(
                             text: text,
+                            words: partial.words,
+                            weights: partial.weights,
                             pinyin: partial.pinyin,
                             score: partial.accumulated,
                             segments: partial.words.count
@@ -180,6 +199,7 @@ public enum LatticeDecoder {
                             accumulated: accumulated,
                             state: predecessor,
                             words: [edge.text] + partial.words,
+                            weights: [edge.weight] + partial.weights,
                             pinyin: [edge.pinyin] + partial.pinyin
                         )
                     )

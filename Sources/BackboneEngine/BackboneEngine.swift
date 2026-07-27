@@ -220,11 +220,19 @@ public final class PinyinEngine: @unchecked Sendable {
 
             // A word typed as initials only (dx → 大学), or with its first
             // syllable spelled out and the rest reduced (meiy → 没有).
-            if available >= 2 {
-                for length in 2...min(available, 9) {
+            if available >= 1 {
+                for length in 1...min(available, 9) {
                     let code = String(characters[position..<(position + length)])
                     if length <= 5 {
-                        for entry in dictionary.abbreviated(code, limit: 3) {
+                        // Length 1 matters: a lone initial standing for one
+                        // syllable (d → 第) is how abbreviations actually
+                        // decompose when they do not line up with a multi-word
+                        // lexicon entry. Without it an abbreviation is only
+                        // reachable when it exactly matches a stored code, and
+                        // most do not. Single letters fan out widely, so they
+                        // get a tighter limit and lean on the transition model
+                        // and the abbreviation cost to stay in their place.
+                        for entry in dictionary.abbreviated(code, limit: length == 1 ? 120 : 60) {
                             edges.append(
                                 LatticeEdge(
                                     start: position,
@@ -237,7 +245,7 @@ public final class PinyinEngine: @unchecked Sendable {
                         }
                     }
                     if length >= 3 {
-                        for entry in dictionary.mixedCoded(code, limit: 3) {
+                        for entry in dictionary.mixedCoded(code, limit: 60) {
                             edges.append(
                                 LatticeEdge(
                                     start: position,
@@ -310,13 +318,29 @@ public final class PinyinEngine: @unchecked Sendable {
             }
         )
 
+        // Rescore the finished list with third-order context. Search keeps a
+        // bigram state because a trigram state would multiply the lattice;
+        // applying the richer model to the ~80 surviving candidates instead
+        // costs nothing during search. Only the language-model term is
+        // adjusted, so the decoder's written-form costs survive.
         return paths.map { path in
-            Candidate(
+            let adjustment = ScoreModel.trigramAdjustment(
+                words: path.words,
+                weights: path.weights,
+                logTotalWeight: logTotal,
+                bigram: { [dictionary] previous, next in
+                    dictionary.transition(from: previous, to: next)
+                },
+                trigram: { [dictionary] first, second, next in
+                    dictionary.trigram(first, second, next)
+                }
+            )
+            return Candidate(
                 text: spaced(path.text, words: path.pinyin.count),
                 pinyin: path.pinyin.joined(separator: " "),
                 source: .sentence,
                 consumed: key.count,
-                score: path.score
+                score: path.score + adjustment
             )
         }
     }

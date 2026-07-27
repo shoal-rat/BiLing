@@ -30,12 +30,16 @@ enum InputSourceRegistration {
                     || sourceIdentifier.hasPrefix("\(bundleIdentifier).") else {
                 continue
             }
-            if sourceIdentifier == modeIdentifier {
-                guard isASCIICapable(source) == false else {
-                    throw RegistrationError.asciiCapable
-                }
-                verifiedMode = true
+            guard sourceIdentifier == modeIdentifier else {
+                // Enable only the input *mode*, never the parent method.
+                // Enabling both makes macOS list 笔灵 twice in the input menu,
+                // once for the method and once for the mode it contains.
+                continue
             }
+            guard isASCIICapable(source) == false else {
+                throw RegistrationError.asciiCapable
+            }
+            verifiedMode = true
             if TISEnableInputSource(source) == noErr {
                 enabledCount += 1
             }

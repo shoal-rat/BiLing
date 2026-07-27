@@ -1,13 +1,15 @@
-Apple Pinyin (com.apple.inputmethod.SCIM.ITABC) vs BiLing 1.3.0
-Same 260 items, no preceding context for either system.
-Apple driven through real key events into a text view; space commits its top-1.
+Apple Pinyin (com.apple.inputmethod.SCIM.ITABC) vs BiLing
+Identical 260 items, neither system given preceding context.
+Apple driven through real key events; space commits its top-1.
 
-category            n    Apple   BiLing  BiLing-lex
----------------------------------------------------
-abbrev            100    57.0%    22.0%            
-abbrev-heavy       10    30.0%    20.0%            
-full              150    65.3%    57.3%            
----------------------------------------------------
-OVERALL           260    60.8%    42.3%       32.3%
+category            n    Apple   BiLing     gap
+-----------------------------------------------
+abbrev            100    57.0%    39.0%   -18.0
+abbrev-heavy       10    30.0%    30.0%    +0.0
+full              150    65.3%    59.3%    -6.0
+-----------------------------------------------
+OVERALL           260    60.8%    50.4%   -10.4
 
-Apple wins overall by 18.5 points, and by 35 points on abbreviated input.
+Apple remains ahead overall. The gap has closed from 18.5 points to
+10.4 over this round; abbrev-heavy is level; abbreviated input is where
+the remaining difference lives.

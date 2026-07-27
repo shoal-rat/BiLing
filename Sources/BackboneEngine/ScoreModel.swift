@@ -59,7 +59,7 @@ public enum ScoreModel {
         /// Completed from the system word list — a weak guess.
         case guessedExpansion
 
-        var pseudoWeight: Double {
+        public var pseudoWeight: Double {
             switch self {
             case .spelledOut: 20_000
             case .curatedExpansion: 6_000
@@ -77,6 +77,48 @@ public enum ScoreModel {
     /// rather than the lexicon unigram (Jelinek-Mercer interpolation). An
     /// unseen transition falls back exactly to the unigram behaviour.
     public static let transitionWeight = 0.40
+
+    /// Weight on the trigram term when rescoring the n-best list.
+    ///
+    /// Decoding keeps a bigram state because a trigram state would multiply the
+    /// lattice; the third-order context is applied afterwards to the finished
+    /// candidates instead. This is the usual arrangement in speech decoders —
+    /// search with a compact model, rescore with a richer one — and it costs
+    /// nothing during search.
+    public static let trigramWeight = 0.15
+
+    /// How much a third-order context changes the language-model term.
+    ///
+    /// Returned as a *difference* from what the decoder already charged, so the
+    /// written-form costs it applied — the price of abbreviating — survive
+    /// untouched. Rescoring by recomputing the whole score instead throws those
+    /// away and, measured, was worth nothing.
+    public static func trigramAdjustment(
+        words: [String],
+        weights: [Double],
+        logTotalWeight: Double,
+        bigram: (String, String) -> Double,
+        trigram: (String, String, String) -> Double
+    ) -> Double {
+        guard words.count == weights.count else { return 0 }
+        var delta = 0.0
+        var first = DictTrie.sentenceStart
+        var second = DictTrie.sentenceStart
+        for (index, word) in words.enumerated() {
+            let uni = exp(wordLogProbability(weight: weights[index], logTotalWeight: logTotalWeight))
+            let bi = bigram(second, word)
+            let tri = trigram(first, second, word)
+            let decoded = transitionWeight * bi + (1 - transitionWeight) * uni
+            let rescored = trigramWeight * tri
+                + transitionWeight * bi
+                + max(0, 1 - trigramWeight - transitionWeight) * uni
+            delta += log(max(rescored, .leastNormalMagnitude))
+                - log(max(decoded, .leastNormalMagnitude))
+            first = second
+            second = word
+        }
+        return delta
+    }
 
     /// Cost of one segment given the word before it.
     ///
