@@ -109,7 +109,22 @@ final class EngineService: NSObject, BiLingEngineXPC {
         Task {
             do {
                 let ranker = try manager.currentRanker()
-                reply(IPCCoder.encode(try await ranker.rank(request)))
+                let ranked = try await ranker.rank(request)
+                // Report the manager's description so callers see the
+                // 个人模型 marker; the ranker itself only knows the file.
+                reply(
+                    IPCCoder.encode(
+                        RankReply(
+                            clientID: ranked.clientID,
+                            generation: ranked.generation,
+                            orderedCandidates: ranked.orderedCandidates,
+                            scores: ranked.scores,
+                            latencyMilliseconds: ranked.latencyMilliseconds,
+                            modelDescription: manager.modelDescription(),
+                            error: ranked.error
+                        )
+                    )
+                )
             } catch {
                 reply(
                     IPCCoder.encode(
