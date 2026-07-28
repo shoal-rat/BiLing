@@ -108,6 +108,12 @@ public final class EnglishLexicon: @unchecked Sendable {
         curatedByKey[key]
     }
 
+    /// Begins loading the system word list off the keystroke path. Safe to
+    /// call repeatedly; only the first call does work.
+    public func prepare() {
+        beginLoadingIfNeeded()
+    }
+
     /// Loads the system word list synchronously. The input method never calls
     /// this — it would stall a keystroke — but one-shot tools and tests need
     /// the list present before their single query.

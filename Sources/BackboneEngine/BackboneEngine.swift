@@ -11,6 +11,12 @@ public final class PinyinEngine: @unchecked Sendable {
     public init(dictionary: DictTrie, learningStore: any LearningStore) {
         self.dictionary = dictionary
         self.learningStore = learningStore
+        // Start the Latin word list loading now rather than on the first
+        // mixed-script keystroke. Otherwise the engine's answer depends on
+        // whether a background load happened to finish, which makes behaviour
+        // non-deterministic and made an early mixed-language input silently
+        // fall back to the raw letters.
+        EnglishLexicon.shared.prepare()
         let inventory = dictionary.syllables.isEmpty ? SyllableInventory.standard.syllables : dictionary.syllables
         self.inventory = SyllableInventory(inventory)
     }
