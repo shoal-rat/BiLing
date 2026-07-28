@@ -79,10 +79,16 @@ order.
 survived the forward pass*. The forward pass keeps at most 24 distinct
 last-word states per position (`maxStatesPerPosition`), so the decoder is exact
 under its state representation and approximate with respect to the full
-lattice. It is not described as globally exact anywhere in the code, and the
-differential test against exhaustive enumeration required by the v2 plan is
-**not yet implemented** — until it exists the approximation is bounded by
-construction but unmeasured.
+lattice. The differential test against exhaustive enumeration
+(`DecoderDifferentialTests`, oracle in `ReferenceDecoder.swift`) now measures
+that approximation: on 3000 production-shaped random lattices where the cap
+never fires the decoder is exact (0 top-1 disagreements, top-5 score
+sequences identical), and on lattices built to exceed the cap with
+idiom-style correlated transitions it loses top-1 in 7.5% of cases at a mean
+1.50 nats — full numbers in `Docs/results/decoder-differential.txt`. The
+loss requires *both* >24 distinct last-words at a position *and* a strongly
+predicted continuation hanging off a weak-prefix word; independent random
+transitions produce no measurable loss at all.
 
 This replaced a beam search that kept the best few partial paths per position.
 That failed exactly where the lattice is widest — long input and abbreviations

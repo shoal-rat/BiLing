@@ -37,6 +37,33 @@ public struct LatticeEdge: Sendable {
     }
 }
 
+extension LatticeEdge {
+    /// Cost of taking this edge after `previous` — the one edge-scoring
+    /// formula in the system. `LatticeDecoder` and `ReferenceDecoder` both
+    /// call this, so the differential tests compare decoding *strategies*;
+    /// two copies of the arithmetic could drift apart and hide exactly the
+    /// discrepancies those tests exist to find.
+    func score(
+        afterWord previous: String,
+        logTotalWeight: Double,
+        transition: (String, String) -> Double
+    ) -> Double {
+        switch reading {
+        case let .lexicon(weight, form):
+            return ScoreModel.transitionLogProbability(
+                weight: weight,
+                logTotalWeight: logTotalWeight,
+                conditional: transition(previous, text),
+                form: form
+            )
+        case let .latin(evidence):
+            return ScoreModel.latinLogProbability(evidence, logTotalWeight: logTotalWeight)
+        case let .name(logProbability):
+            return logProbability
+        }
+    }
+}
+
 /// Exact n-best decoding over the segmentation lattice.
 ///
 /// The previous beam search kept the best few partial paths per position and
@@ -103,22 +130,6 @@ public enum LatticeDecoder {
             edgesTo[edge.end].append(edge)
         }
 
-        func edgeScore(previous: String, _ edge: LatticeEdge) -> Double {
-            switch edge.reading {
-            case let .lexicon(weight, form):
-                return ScoreModel.transitionLogProbability(
-                    weight: weight,
-                    logTotalWeight: logTotalWeight,
-                    conditional: transition(previous, edge.text),
-                    form: form
-                )
-            case let .latin(evidence):
-                return ScoreModel.latinLogProbability(evidence, logTotalWeight: logTotalWeight)
-            case let .name(logProbability):
-                return logProbability
-            }
-        }
-
         // ---- Pass 1: forward Viterbi, exact best score into every state ----
         let startState = State(position: 0, word: DictTrie.sentenceStart)
         var forward: [State: Double] = [startState: 0]
@@ -146,7 +157,11 @@ public enum LatticeDecoder {
                 let from = State(position: position, word: word)
                 guard let base = forward[from] else { continue }
                 for edge in edgesFrom[position] {
-                    let candidate = base + edgeScore(previous: word, edge)
+                    let candidate = base + edge.score(
+                        afterWord: word,
+                        logTotalWeight: logTotalWeight,
+                        transition: transition
+                    )
                     let to = State(position: edge.end, word: edge.text)
                     if let existing = forward[to], existing >= candidate { continue }
                     if forward[to] == nil { statesAt[edge.end].append(edge.text) }
@@ -206,7 +221,11 @@ public enum LatticeDecoder {
                 for previous in statesAt[edge.start] {
                     let predecessor = State(position: edge.start, word: previous)
                     guard let heuristic = forward[predecessor] else { continue }
-                    let step = edgeScore(previous: previous, edge)
+                    let step = edge.score(
+                        afterWord: previous,
+                        logTotalWeight: logTotalWeight,
+                        transition: transition
+                    )
                     let accumulated = partial.accumulated + step
                     heap.push(
                         Partial(
