@@ -1,17 +1,19 @@
-BiLing — derived corpus, held-out TEST (all tuning on dev only)
+BiLing — held-out derived test, all tuning on dev, run once at cd203e6
 
 === lexicon only ===
-full n=412  top1  45.4%  top5  60.7%  cover  70.1%  MRR 0.522  median    4.3 ms  p95    8.9 ms
-abbrev n=310  top1  25.2%  top5  36.8%  cover  51.0%  MRR 0.308  median   26.8 ms  p95   54.7 ms
-abbrev-heavy n=402  top1  15.2%  top5  21.9%  cover  32.6%  MRR 0.184  median   21.2 ms  p95   44.9 ms
-full-ctx n=401  top1  60.6%  top5  71.3%  cover  76.8%  MRR 0.657  median    2.2 ms  p95    4.2 ms
-abbrev-ctx n=236  top1  39.0%  top5  50.8%  cover  64.4%  MRR 0.447  median   12.4 ms  p95   28.2 ms
-OVERALL n=1761 top1  37.5%  top5  48.7%  cover  58.9%  MRR 0.428  median    8.6 ms  p95   42.0 ms
+full n=412  top1  46.1%  top5  61.7%  cover  70.9%  MRR 0.530  median   12.9 ms  p95   43.9 ms
+abbrev n=310  top1  24.8%  top5  36.5%  cover  51.6%  MRR 0.307  median   43.7 ms  p95   99.6 ms
+abbrev-heavy n=402  top1  15.7%  top5  21.9%  cover  32.8%  MRR 0.187  median   31.1 ms  p95   69.3 ms
+full-ctx n=401  top1  60.6%  top5  72.3%  cover  79.3%  MRR 0.661  median    6.1 ms  p95   14.3 ms
+abbrev-ctx n=236  top1  39.0%  top5  51.7%  cover  65.3%  MRR 0.451  median   18.5 ms  p95   41.4 ms
+OVERALL n=1761 top1  37.8%  top5  49.2%  cover  60.0%  MRR 0.432  median   17.8 ms  p95   68.3 ms
+model gate: invoked 1294 of 1761 items (73.5%)
 
-=== full system ===
-full n=412  top1  52.9%  top5  63.8%  cover  70.1%  MRR 0.577  median   48.4 ms  p95   81.4 ms
-abbrev n=310  top1  33.2%  top5  42.3%  cover  51.0%  MRR 0.368  median   70.9 ms  p95  124.9 ms
-abbrev-heavy n=402  top1  18.4%  top5  26.6%  cover  32.6%  MRR 0.216  median   60.7 ms  p95  110.4 ms
-full-ctx n=401  top1  66.1%  top5  73.3%  cover  76.8%  MRR 0.693  median   39.9 ms  p95   52.8 ms
-abbrev-ctx n=236  top1  50.0%  top5  55.1%  cover  64.4%  MRR 0.527  median   44.5 ms  p95   68.3 ms
-OVERALL n=1761 top1  44.2%  top5  52.5%  cover  58.9%  MRR 0.477  median   50.1 ms  p95  103.2 ms
+=== full system (gated model + context) ===
+full n=412  top1  52.9%  top5  64.6%  cover  70.9%  MRR 0.578  median   91.5 ms  p95  181.2 ms
+abbrev n=310  top1  32.9%  top5  42.9%  cover  51.6%  MRR 0.369  median  136.3 ms  p95  263.8 ms
+abbrev-heavy n=402  top1  18.9%  top5  26.6%  cover  32.8%  MRR 0.219  median  112.1 ms  p95  217.9 ms
+full-ctx n=401  top1  66.1%  top5  74.6%  cover  79.3%  MRR 0.697  median   67.5 ms  p95  105.0 ms
+abbrev-ctx n=236  top1  50.0%  top5  55.9%  cover  65.3%  MRR 0.531  median   79.6 ms  p95  134.4 ms
+OVERALL n=1761 top1  44.2%  top5  53.2%  cover  60.0%  MRR 0.480  median   91.9 ms  p95  213.7 ms
+model gate: invoked 1294 of 1761 items (73.5%)

@@ -259,17 +259,17 @@ that comparison does and does not control.
 | 2 Modular engine protocols | not started — the engine is still one type |
 | 3 Hybrid lattice | character, name, fuzzy, and typo edges done; entity edges not started |
 | 4 Trainable typing channel | not started — form priors are still fixed constants |
-| 5 Trainable statistical decoder | not started — weights are swept, not learned |
+| 5 Trainable statistical decoder | infrastructure shipped in fallback; trained θ refused export after bias masking (see implementation-report-v2.md) |
 | 6 User language model tiers | not started |
 | 7 Compact neural reranker | not started |
-| 8 Confidence gating | partial — evidence scaling and the monotone guard exist; no calibrated gate |
+| 8 Confidence gating | margin gate calibrated on dev, 20–26% fewer model calls at equal top-1; no learned confidence model yet |
 | 9 Qwen demotion and bridge fixes | not started |
 | 10 Candidate stability controller | not started — generation tagging exists, no stability rules |
 | 11 Context correctness audit | not started |
 | 12 Data pipeline | partial — corpus, n-gram and name builders exist; no manifests or licence records |
 | 13 Split design | partial — hash split by sentence; no source or time separation |
 | 14 Evaluation metrics | partial — top-1/5, coverage, MRR, latency; no keystroke savings or churn |
-| 15 Replay and energy benchmark | not started |
+| 15 Replay and energy benchmark | replay harness with signposts done; energy runs not yet automated |
 | 16 Apple comparison protocol | partial — harness exists and is documented; no controlled protocol document |
 | 17 CI and installer | not started |
 | 18 Configuration and observability | not started |
