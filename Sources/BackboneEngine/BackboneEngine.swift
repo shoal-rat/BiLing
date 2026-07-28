@@ -12,6 +12,9 @@ public final class PinyinEngine: @unchecked Sendable {
     /// Swept on the development set; see Docs/architecture-v2.md.
     private let characterFanIn = 20
 
+    /// Trained ranking weights; the fallback reproduces the untrained engine.
+    private let rankerWeights = RankerModel.defaultWeights()
+
     public init(dictionary: DictTrie, learningStore: any LearningStore) {
         self.dictionary = dictionary
         self.learningStore = learningStore
@@ -179,7 +182,18 @@ public final class PinyinEngine: @unchecked Sendable {
             )
         )
 
-        let sorted = merged.values.sorted {
+        // The learned combination replaces raw generative score as the sort
+        // key. With fallback weights the two are identical, so an absent or
+        // invalid weights file changes nothing.
+        var rescored = Array(merged.values)
+        for index in rescored.indices {
+            rescored[index].score = RankerModel.score(
+                rescored[index],
+                keyLength: key.count,
+                weights: rankerWeights
+            )
+        }
+        let sorted = rescored.sorted {
             if $0.score != $1.score { return $0.score > $1.score }
             if $0.source != $1.source {
                 let order: [CandidateSource: Int] = [.learned: 0, .sentence: 1, .system: 2, .english: 3, .literal: 4]

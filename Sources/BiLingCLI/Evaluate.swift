@@ -48,18 +48,60 @@ enum Evaluate {
         let milliseconds: Double
     }
 
+    /// Writes one JSON line per corpus item: the candidate list with feature
+    /// vectors and which candidate matches the target. This is the training
+    /// set for the listwise ranker — real lists the engine actually produced,
+    /// hard negatives included by construction.
+    static func dumpFeatures(corpus: URL, useContext: Bool) throws {
+        let rows = try parse(corpus)
+        let engine = try PinyinEngine(dictionary: .bundled(), learningStore: MemoryLearningStore())
+        EnglishLexicon.shared.warm()
+        var emitted = 0
+        for row in rows {
+            let context = useContext ? row.context : ""
+            let candidates = engine.candidates(for: row.pinyin, context: context).candidates
+            let target = normalise(row.expected)
+            guard let positive = candidates.firstIndex(where: { normalise($0.text) == target })
+            else { continue }  // uncovered items teach the ranker nothing
+            let list: [[String: Any]] = candidates.prefix(40).map { candidate in
+                [
+                    "features": RankerModel.features(for: candidate, keyLength: row.pinyin.count),
+                    "text": candidate.text,
+                ]
+            }
+            guard positive < list.count else { continue }
+            let record: [String: Any] = [
+                "keys": row.pinyin,
+                "positive_index": positive,
+                "candidates": list,
+            ]
+            let data = try JSONSerialization.data(withJSONObject: record)
+            FileHandle.standardOutput.write(data)
+            FileHandle.standardOutput.write(Data("\n".utf8))
+            emitted += 1
+        }
+        FileHandle.standardError.write(Data("emitted \(emitted) lists of \(rows.count) items\n".utf8))
+    }
+
     static func run(corpus: URL, ranker: QwenRanker?, useContext: Bool) throws {
         let rows = try parse(corpus)
         let engine = try PinyinEngine(dictionary: .bundled(), learningStore: MemoryLearningStore())
         EnglishLexicon.shared.warm()
         var outcomes: [Outcome] = []
+        var invocations = 0
+        var gatedOut = 0
         let clock = ContinuousClock()
 
         for row in rows {
             let context = useContext ? row.context : ""
             let start = clock.now
             var candidates = engine.candidates(for: row.pinyin, context: context).candidates
-            if let ranker {
+            let gateOpen = ScoreModel.shouldInvokeModel(
+                topScore: candidates.first?.score ?? 0,
+                secondScore: candidates.count > 1 ? candidates[1].score : nil
+            )
+            if gateOpen { invocations += 1 } else { gatedOut += 1 }
+            if let ranker, gateOpen {
                 let request = RankRequest(
                     clientID: UUID(),
                     generation: 1,
@@ -91,9 +133,14 @@ enum Evaluate {
             )
         }
         report(outcomes)
+        if invocations + gatedOut > 0 {
+            let rate = 100 * Double(invocations) / Double(invocations + gatedOut)
+            print(String(format: "\nmodel gate: invoked %d of %d items (%.1f%%)",
+                         invocations, invocations + gatedOut, rate))
+        }
     }
 
-    private static func runBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
+    static func runBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
         let semaphore = DispatchSemaphore(value: 0)
         var result: Result<T, Error>!
         Task {

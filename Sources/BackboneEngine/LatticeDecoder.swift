@@ -95,7 +95,10 @@ public enum LatticeDecoder {
 
         var edgesFrom = [[LatticeEdge]](repeating: [], count: inputLength + 1)
         var edgesTo = [[LatticeEdge]](repeating: [], count: inputLength + 1)
-        for edge in edges where edge.start >= 0 && edge.end <= inputLength {
+        // A zero- or negative-span edge would cycle the backward pass until the
+        // expansion bound burns out; nothing emits one today, but the decoder
+        // must not rely on that.
+        for edge in edges where edge.start >= 0 && edge.end <= inputLength && edge.end > edge.start {
             edgesFrom[edge.start].append(edge)
             edgesTo[edge.end].append(edge)
         }
@@ -123,6 +126,21 @@ public enum LatticeDecoder {
         statesAt[0] = [DictTrie.sentenceStart]
 
         for position in 0..<inputLength {
+            // The frontier at position+1 must be trimmed even when this
+            // position is a dead end: edges jumping over it can still have
+            // populated that frontier, and skipping the trim here let it grow
+            // unbounded past maxStatesPerPosition (found by the differential
+            // tests against exhaustive enumeration).
+            defer {
+                let next = position + 1
+                if next <= inputLength, statesAt[next].count > maxStatesPerPosition {
+                    statesAt[next] = statesAt[next]
+                        .sorted { (forward[State(position: next, word: $0)] ?? -.infinity)
+                                > (forward[State(position: next, word: $1)] ?? -.infinity) }
+                        .prefix(maxStatesPerPosition)
+                        .map { $0 }
+                }
+            }
             guard !statesAt[position].isEmpty, !edgesFrom[position].isEmpty else { continue }
             for word in statesAt[position] {
                 let from = State(position: position, word: word)
@@ -134,15 +152,6 @@ public enum LatticeDecoder {
                     if forward[to] == nil { statesAt[edge.end].append(edge.text) }
                     forward[to] = candidate
                 }
-            }
-            // Trim the next frontier once it is fully populated by this step.
-            let next = position + 1
-            if statesAt[next].count > maxStatesPerPosition {
-                statesAt[next] = statesAt[next]
-                    .sorted { (forward[State(position: next, word: $0)] ?? -.infinity)
-                            > (forward[State(position: next, word: $1)] ?? -.infinity) }
-                    .prefix(maxStatesPerPosition)
-                    .map { $0 }
             }
         }
 

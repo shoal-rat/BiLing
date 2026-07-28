@@ -1,0 +1,13 @@
+Model-invocation gate calibration — derived-dev, full system, Apple M5
+Gate: skip Qwen when (top1.score - top2.score) >= margin
+
+margin   invoked      top-1   top-5   MRR
+1.0      57.8%        39.2%   46.9%   0.427
+2.0      73.1%        40.0%   47.2%   0.434
+3.0      79.8%        40.2%   47.4%   0.435
+6.0      93.0%        40.2%   47.4%   0.436
+10.0     98.8%        40.2%   47.4%   0.436
+
+Chosen: 3.0 — eliminates 20.2% of model invocations with no measured
+top-1 cost (MRR -0.001, within run-to-run noise). Below 2.0 the gate
+starts refusing calls the model would have won.

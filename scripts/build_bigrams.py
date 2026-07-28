@@ -70,6 +70,19 @@ def main() -> None:
         sys.exit("Missing jieba.")
     jieba.setLogLevel(60)
 
+    # Multi-character lexicon words, for splitting compounds the segmenter
+    # treats as single tokens. Loaded once from the existing database.
+    lexicon_words: set[str] | None = None
+    if args.lexicon.exists():
+        connection = sqlite3.connect(args.lexicon)
+        lexicon_words = {
+            row[0]
+            for row in connection.execute(
+                "SELECT DISTINCT text FROM entries WHERE length(text) BETWEEN 2 AND 4;"
+            )
+        }
+        connection.close()
+
     banned: set[str] = set()
     for path in args.exclude:
         banned.update(sentences(path))
@@ -99,6 +112,25 @@ def main() -> None:
                 history[(before, previous)] += 1
                 trigram[(before, previous, word)] += 1
                 before, previous = previous, word
+                # Compound-internal transitions. jieba tokenises 吉林大学 as a
+                # single word, so the transition 吉林→大学 is never counted —
+                # and at runtime, when the user types the halves separately or
+                # abbreviates the second (jilin + dx), the decoder sees no
+                # evidence linking them and raw frequency picks 东西 over
+                # 大学. Splitting long tokens at their most balanced
+                # lexicon-word boundary recovers exactly those transitions.
+                if len(word) >= 4 and lexicon_words is not None:
+                    best = None
+                    for cut in range(2, len(word) - 1):
+                        head, tail = word[:cut], word[cut:]
+                        if head in lexicon_words and tail in lexicon_words:
+                            balance = min(len(head), len(tail))
+                            if best is None or balance > best[0]:
+                                best = (balance, head, tail)
+                    if best is not None:
+                        _, head, tail = best
+                        unigram[head] += 1
+                        bigram[(head, tail)] += 1
 
     rows = [
         (prev, nxt, count / unigram[prev])

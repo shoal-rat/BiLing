@@ -21,6 +21,9 @@ var useXPC = false
 var noContext = false
 var engineOnly = false
 var evaluateCorpus: URL?
+var dumpFeaturesCorpus: URL?
+var replayCorpus: URL?
+var replayLimit = 50
 var exportDirectory: String?
 while !arguments.isEmpty {
     let item = arguments.removeFirst()
@@ -31,6 +34,15 @@ while !arguments.isEmpty {
         noContext = true
     case "--engine-only":
         engineOnly = true
+    case "--replay":
+        guard !arguments.isEmpty else { usage() }
+        replayCorpus = URL(fileURLWithPath: arguments.removeFirst())
+    case "--replay-limit":
+        guard !arguments.isEmpty else { usage() }
+        replayLimit = Int(arguments.removeFirst()) ?? 50
+    case "--dump-features":
+        guard !arguments.isEmpty else { usage() }
+        dumpFeaturesCorpus = URL(fileURLWithPath: arguments.removeFirst())
     case "--evaluate":
         guard !arguments.isEmpty else { usage() }
         evaluateCorpus = URL(fileURLWithPath: arguments.removeFirst())
@@ -63,6 +75,32 @@ if let exportDirectory {
 }
 
 EnglishLexicon.shared.warm()
+
+if let dumpFeaturesCorpus {
+    do {
+        try Evaluate.dumpFeatures(corpus: dumpFeaturesCorpus, useContext: !noContext)
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+}
+
+if let replayCorpus {
+    do {
+        let ranker = engineOnly ? nil : try QwenRanker(modelURL: modelURL)
+        try ReplayBenchmark.run(
+            corpus: replayCorpus,
+            limit: replayLimit,
+            ranker: ranker,
+            useContext: !noContext
+        )
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+}
 
 if let evaluateCorpus {
     do {

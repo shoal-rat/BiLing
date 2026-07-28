@@ -209,6 +209,14 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
             return
         }
 
+        // When the deterministic ranking is already decided, asking the model
+        // to confirm it burns a wakeup and ~25 ms of GPU for nothing; the
+        // margin threshold is calibrated in Docs/results/gate-calibration.txt.
+        guard ScoreModel.shouldInvokeModel(
+            topScore: candidates.first?.score ?? 0,
+            secondScore: candidates.count > 1 ? candidates[1].score : nil
+        ) else { return }
+
         let request = RankRequest(
             clientID: clientID,
             generation: generation,

@@ -184,6 +184,25 @@ public enum ScoreModel {
         logMaxWeight - logTotalWeight + log1p(max(0, decayedCount)) * 0.5
     }
 
+    /// Should the language model run at all for this candidate list?
+    ///
+    /// The statistical margin — the score gap between the first and second
+    /// candidate — is the cheapest confidence signal there is, already
+    /// computed, and it directly measures whether there is a decision left to
+    /// make. When the deterministic layer is sure, invoking a 0.6B model burns
+    /// energy to confirm a ranking it almost never changes; when the margin is
+    /// thin, the model is exactly what breaks the tie. The threshold is
+    /// calibrated on the development set for the largest energy saving at an
+    /// accuracy cost indistinguishable from noise; the calibration table lives
+    /// in Docs/results/gate-calibration.txt.
+    public static func shouldInvokeModel(topScore: Double, secondScore: Double?) -> Bool {
+        guard let secondScore else { return false }  // one candidate: nothing to rank
+        return (topScore - secondScore) < modelInvocationMargin
+    }
+
+    /// Log-score gap above which the statistical ranking stands unassisted.
+    public static let modelInvocationMargin = 3.0
+
     /// Weight on the language model, scaled by how much it actually has to say.
     ///
     /// The lexicon already carries unigram frequency, estimated from a far
