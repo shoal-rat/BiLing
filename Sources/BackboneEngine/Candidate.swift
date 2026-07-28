@@ -7,6 +7,7 @@ public enum CandidateSource: String, Codable, Sendable {
     case sentence
     case abbreviation
     case english
+    case name
     case literal
 }
 

@@ -41,6 +41,12 @@ public final class DictTrie: @unchecked Sendable {
     /// "w-2\u{1}w-1\u{1}w" → P(w | w-2, w-1), used to rescore the n-best list.
     private var trigrams: [UInt64: Float] = [:]
     private var unigramByText: [String: Double] = [:]
+    private var characterCache: [String: [LexiconEntry]] = [:]
+    /// Personal-name model: how likely a character opens a name, and how
+    /// likely it sits at given-name position 1 or 2.
+    private var surnameLogP: [String: Double] = [:]
+    private var givenLogP: [String: Double] = [:]
+    public private(set) var hasNameModel = false
 
     public init(entries: [LexiconEntry]) {
         for entry in entries {
@@ -81,6 +87,7 @@ public final class DictTrie: @unchecked Sendable {
         }
         loadTransitions(handle)
         loadTrigrams(handle)
+        loadNameModel(handle)
         maxKeyLength = max(1, Self.scalarInt(handle, sql: "SELECT MAX(LENGTH(key)) FROM entries;"))
         syllables = SyllableInventory.standard.syllables
         sqlite3_prepare_v2(
@@ -294,6 +301,85 @@ public final class DictTrie: @unchecked Sendable {
     /// P(next | first, second), or 0 when the triple was never observed.
     public func trigram(_ first: String, _ second: String, _ next: String) -> Double {
         trigrams[Self.key(first, second, next)].map(Double.init) ?? 0
+    }
+
+    private func loadNameModel(_ handle: OpaquePointer) {
+        var statement: OpaquePointer?
+        if sqlite3_prepare_v2(handle, "SELECT char, logp FROM surnames;", -1, &statement, nil) == SQLITE_OK,
+           let statement {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let character = Self.columnText(statement, index: 0) {
+                    surnameLogP[character] = sqlite3_column_double(statement, 1)
+                }
+            }
+        }
+        sqlite3_finalize(statement)
+        statement = nil
+        if sqlite3_prepare_v2(handle, "SELECT char, position, logp FROM given_chars;", -1, &statement, nil) == SQLITE_OK,
+           let statement {
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let character = Self.columnText(statement, index: 0) {
+                    let position = Int(sqlite3_column_int(statement, 1))
+                    givenLogP["\(position)\u{1}" + character] = sqlite3_column_double(statement, 2)
+                }
+            }
+        }
+        sqlite3_finalize(statement)
+        hasNameModel = !surnameLogP.isEmpty && !givenLogP.isEmpty
+    }
+
+    /// Log-probability that this character opens a personal name, or nil when
+    /// it is not a surname.
+    public func surnameLogProbability(_ character: String) -> Double? {
+        surnameLogP[character]
+    }
+
+    /// Log-probability of a character at the given position of a given name.
+    public func givenNameLogProbability(_ character: String, position: Int) -> Double? {
+        givenLogP["\(position)\u{1}" + character]
+    }
+
+    /// Characters for this syllable that are surnames, with their weights.
+    public func surnameCharacters(forSyllable syllable: String) -> [(text: String, logp: Double)] {
+        var found: [(text: String, logp: Double)] = []
+        for entry in charactersForSyllable(syllable, limit: 40) {
+            guard let logp = surnameLogP[entry.text] else { continue }
+            found.append((text: entry.text, logp: logp))
+        }
+        return found
+    }
+
+    /// Characters for this syllable that are plausible at a given-name
+    /// position, best first.
+    public func givenNameCharacters(
+        forSyllable syllable: String,
+        position: Int,
+        limit: Int = 6
+    ) -> [(text: String, logp: Double)] {
+        var scored: [(text: String, logp: Double)] = []
+        for entry in charactersForSyllable(syllable, limit: 40) {
+            guard let logp = givenLogP["\(position)\u{1}" + entry.text] else { continue }
+            scored.append((text: entry.text, logp: logp))
+        }
+        scored.sort { $0.logp > $1.logp }
+        return Array(scored.prefix(limit))
+    }
+
+    /// Single characters that can be written for one syllable, most frequent
+    /// first.
+    ///
+    /// This is the character-level half of the lattice. Word edges alone can
+    /// only produce sequences the lexicon already contains as entries, so a
+    /// name or coinage nobody has listed is unreachable no matter how the
+    /// search is tuned. Letting every valid syllable also stand for its
+    /// individual characters makes those constructible, at the cost of a wider
+    /// lattice — which the per-segment cost already prices, since a path of
+    /// many single characters pays the segment penalty many times.
+    public func charactersForSyllable(_ syllable: String, limit: Int = 12) -> [LexiconEntry] {
+        if let cached = characterCache[syllable] { return Array(cached.prefix(limit)) }
+        let entries = exact(syllable, limit: 64).filter { $0.text.count == 1 }
+        characterCache[syllable] = entries
+        return Array(entries.prefix(limit))
     }
 
     /// Corpus weight of a word by its text, for rescoring a finished path

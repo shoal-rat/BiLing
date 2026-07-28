@@ -8,6 +8,10 @@ public final class PinyinEngine: @unchecked Sendable {
 
     private let english = EnglishLexicon.shared
 
+    /// How many characters each syllable may contribute to the lattice.
+    /// Swept on the development set; see Docs/architecture-v2.md.
+    private let characterFanIn = 20
+
     public init(dictionary: DictTrie, learningStore: any LearningStore) {
         self.dictionary = dictionary
         self.learningStore = learningStore
@@ -113,6 +117,15 @@ public final class PinyinEngine: @unchecked Sendable {
             }
         }
 
+        // Personal names, generated as whole candidates rather than lattice
+        // edges. A name covering the entire buffer is one segment, and the
+        // decoder drops single-segment paths because they would duplicate
+        // exact dictionary matches — so a name assembled in the lattice was
+        // silently discarded. Emitting them here also keeps them out of the
+        // decoder's state budget, where they were measured to evict genuine
+        // word paths and cost 3.8 points of coverage.
+        for candidate in nameCandidates(key: key) { add(candidate) }
+
         // A fully typed curated key always surfaces its canonical form —
         // "claude" → Claude at the top in English mode; "ai" → AI as a lower
         // candidate because 爱 is a real word; "openai" → OpenAI ahead of
@@ -202,6 +215,9 @@ public final class PinyinEngine: @unchecked Sendable {
         // graph whenever a complete spelling exists — and it is what keeps
         // ordinary Chinese input byte-for-byte unchanged.
         let keyIsPurePinyin = segmenter.segment(key).isComplete
+        // Syllable graph: which readings can start at each position. Shared by
+        // the character-fallback edges below.
+        let syllableEdges = segmenter.edges(in: key)
         var edges: [LatticeEdge] = []
 
         for position in 0..<characters.count {
@@ -221,6 +237,33 @@ public final class PinyinEngine: @unchecked Sendable {
                 )
             }
 
+            // Character-level edges: every syllable that starts here may also
+            // be written as its individual characters. Word edges alone can
+            // only reproduce entries the lexicon already holds, so unlisted
+            // names and coinages would be unreachable; these make them
+            // constructible. Paths of many single characters are not free —
+            // each segment pays the usual cost — so this widens coverage
+            // without automatically winning.
+            for edge in syllableEdges[position] where edge.syllable != "'" {
+                for entry in dictionary.charactersForSyllable(edge.syllable, limit: characterFanIn) {
+                    edges.append(
+                        LatticeEdge(
+                            start: position,
+                            end: edge.end,
+                            text: entry.text,
+                            pinyin: entry.displayPinyin,
+                            reading: .lexicon(weight: entry.weight, form: .full)
+                        )
+                    )
+                }
+            }
+
+            // Personal-name edges: a surname followed by one or two given-name
+            // characters, emitted as a single edge so the whole name competes
+            // as one unit. Character edges alone make names *constructible*
+            // but pick the commonest character per syllable — for wangjianlin
+            // that is 望见林 rather than 王建林 — because nothing tells the
+            // model those characters are being used as a name.
             guard !keyIsPurePinyin else { continue }
             let available = characters.count - position
 
@@ -349,6 +392,80 @@ public final class PinyinEngine: @unchecked Sendable {
                 score: path.score + adjustment
             )
         }
+    }
+
+    /// Whole-buffer personal names: a surname followed by one or two
+    /// given-name characters.
+    ///
+    /// Character fallback already makes names constructible, but it picks the
+    /// commonest character per syllable — `wangjianlin` yields 望见林 rather
+    /// than 王建林 — because nothing marks those characters as name usage. The
+    /// name model supplies exactly that signal, and it is applied only when the
+    /// whole buffer could be a name, which is how people type them.
+    private func nameCandidates(key: String) -> [Candidate] {
+        guard dictionary.hasNameModel, key.count <= 12 else { return [] }
+        let segmenter = Segmenter(inventory: inventory)
+        let syllables = segmenter.edges(in: key)
+        guard !syllables.isEmpty else { return [] }
+        let length = key.count
+        var results: [Candidate] = []
+
+        for surnameEdge in syllables[0] where surnameEdge.syllable != "'" {
+            let surnames = dictionary.surnameCharacters(forSyllable: surnameEdge.syllable)
+            guard !surnames.isEmpty, surnameEdge.end < syllables.count else { continue }
+            for firstEdge in syllables[surnameEdge.end] where firstEdge.syllable != "'" {
+                let firstGiven = dictionary.givenNameCharacters(
+                    forSyllable: firstEdge.syllable, position: 1, limit: 4
+                )
+                guard !firstGiven.isEmpty else { continue }
+                for surname in surnames {
+                    for given in firstGiven {
+                        if firstEdge.end == length {
+                            results.append(
+                                nameCandidate(
+                                    text: surname.text + given.text,
+                                    pinyin: "\(surnameEdge.syllable) \(firstEdge.syllable)",
+                                    key: key,
+                                    logProbability: surname.logp + given.logp
+                                )
+                            )
+                        }
+                        guard firstEdge.end < syllables.count else { continue }
+                        for secondEdge in syllables[firstEdge.end]
+                        where secondEdge.syllable != "'" && secondEdge.end == length {
+                            for tail in dictionary.givenNameCharacters(
+                                forSyllable: secondEdge.syllable, position: 2, limit: 4
+                            ) {
+                                results.append(
+                                    nameCandidate(
+                                        text: surname.text + given.text + tail.text,
+                                        pinyin: "\(surnameEdge.syllable) \(firstEdge.syllable) \(secondEdge.syllable)",
+                                        key: key,
+                                        logProbability: surname.logp + given.logp + tail.logp
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return results
+    }
+
+    private func nameCandidate(
+        text: String,
+        pinyin: String,
+        key: String,
+        logProbability: Double
+    ) -> Candidate {
+        Candidate(
+            text: text,
+            pinyin: pinyin,
+            source: .name,
+            consumed: key.count,
+            score: logProbability
+        )
     }
 
     /// Chinese and Latin runs get a space between them, matching the

@@ -7,6 +7,9 @@ public struct LatticeEdge: Sendable {
         case lexicon(weight: Double, form: ScoreModel.TypingForm)
         /// A Latin word, priced through the same unigram model.
         case latin(ScoreModel.LatinEvidence)
+        /// A personal name assembled from a surname and given-name characters,
+        /// already scored by the name model.
+        case name(logProbability: Double)
     }
 
     public let start: Int
@@ -21,6 +24,7 @@ public struct LatticeEdge: Sendable {
         switch reading {
         case let .lexicon(weight, _): weight
         case let .latin(evidence): evidence.pseudoWeight
+        case .name: 1
         }
     }
 
@@ -107,6 +111,8 @@ public enum LatticeDecoder {
                 )
             case let .latin(evidence):
                 return ScoreModel.latinLogProbability(evidence, logTotalWeight: logTotalWeight)
+            case let .name(logProbability):
+                return logProbability
             }
         }
 
