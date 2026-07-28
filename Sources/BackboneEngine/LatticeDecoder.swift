@@ -5,6 +5,10 @@ public struct LatticeEdge: Sendable {
     public enum Reading: Sendable {
         /// A lexicon word, with the written form the user used for it.
         case lexicon(weight: Double, form: ScoreModel.TypingForm)
+        /// A lexicon word whose typed letters deviate from its pinyin — a
+        /// fuzzy merger or a single typing slip — paying the deviation's
+        /// probability on top of the ordinary word and form costs.
+        case tolerant(weight: Double, form: ScoreModel.TypingForm, tolerance: ScoreModel.Tolerance)
         /// A Latin word, priced through the same unigram model.
         case latin(ScoreModel.LatinEvidence)
         /// A personal name assembled from a surname and given-name characters,
@@ -23,9 +27,18 @@ public struct LatticeEdge: Sendable {
     public var weight: Double {
         switch reading {
         case let .lexicon(weight, _): weight
+        case let .tolerant(weight, _, _): weight
         case let .latin(evidence): evidence.pseudoWeight
         case .name: 1
         }
+    }
+
+    /// The deviation this edge tolerates, if any — the decoder threads it
+    /// through to the finished path so the engine can gate repaired readings
+    /// differently from fuzzy ones.
+    var tolerance: ScoreModel.Tolerance? {
+        if case let .tolerant(_, _, tolerance) = reading { return tolerance }
+        return nil
     }
 
     public init(start: Int, end: Int, text: String, pinyin: String, reading: Reading) {
@@ -56,6 +69,16 @@ extension LatticeEdge {
                 conditional: transition(previous, text),
                 form: form
             )
+        case let .tolerant(weight, form, tolerance):
+            // The same word-and-form probability the exact edge would pay,
+            // times the probability that the typed letters deviated — one
+            // more factor on the shared log scale.
+            return ScoreModel.transitionLogProbability(
+                weight: weight,
+                logTotalWeight: logTotalWeight,
+                conditional: transition(previous, text),
+                form: form
+            ) + tolerance.logProbability
         case let .latin(evidence):
             return ScoreModel.latinLogProbability(evidence, logTotalWeight: logTotalWeight)
         case let .name(logProbability):
@@ -98,6 +121,12 @@ public enum LatticeDecoder {
         public let pinyin: [String]
         public let score: Double
         public let segments: Int
+        /// Whether any word was read through a fuzzy merger, and whether any
+        /// was a typing-slip repair. Separate flags because the engine admits
+        /// them under different rules: fuzzy is a spelling the user owns,
+        /// repair is a claim that the user made a mistake.
+        public let usedFuzzy: Bool
+        public let usedTypoRepair: Bool
     }
 
     private struct State: Hashable {
@@ -181,6 +210,8 @@ public enum LatticeDecoder {
             let words: [String]      // suffix, front to back
             let weights: [Double]
             let pinyin: [String]
+            let usedFuzzy: Bool
+            let usedTypoRepair: Bool
         }
         var heap = Heap<Partial>(compare: { $0.priority > $1.priority })
         for word in finals {
@@ -188,7 +219,8 @@ public enum LatticeDecoder {
             guard let score = forward[state] else { continue }
             heap.push(
                 Partial(priority: score, accumulated: 0, state: state,
-                        words: [], weights: [], pinyin: [])
+                        words: [], weights: [], pinyin: [],
+                        usedFuzzy: false, usedTypoRepair: false)
             )
         }
 
@@ -211,13 +243,16 @@ public enum LatticeDecoder {
                             weights: partial.weights,
                             pinyin: partial.pinyin,
                             score: partial.accumulated,
-                            segments: partial.words.count
+                            segments: partial.words.count,
+                            usedFuzzy: partial.usedFuzzy,
+                            usedTypoRepair: partial.usedTypoRepair
                         )
                     )
                 }
                 continue
             }
             for edge in edgesTo[partial.state.position] where edge.text == partial.state.word {
+                let tolerance = edge.tolerance
                 for previous in statesAt[edge.start] {
                     let predecessor = State(position: edge.start, word: previous)
                     guard let heuristic = forward[predecessor] else { continue }
@@ -234,7 +269,10 @@ public enum LatticeDecoder {
                             state: predecessor,
                             words: [edge.text] + partial.words,
                             weights: [edge.weight] + partial.weights,
-                            pinyin: [edge.pinyin] + partial.pinyin
+                            pinyin: [edge.pinyin] + partial.pinyin,
+                            usedFuzzy: partial.usedFuzzy || tolerance == .fuzzySyllable,
+                            usedTypoRepair: partial.usedTypoRepair
+                                || (tolerance != nil && tolerance != .fuzzySyllable)
                         )
                     )
                 }

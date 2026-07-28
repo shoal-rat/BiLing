@@ -83,19 +83,27 @@ enum ReferenceDecoder {
         }
         descend(position: 0, previous: DictTrie.sentenceStart, score: 0)
 
-        return bestByText
-            .map { text, complete in
+        var paths: [LatticeDecoder.Path] = []
+        paths.reserveCapacity(bestByText.count)
+        for (text, complete) in bestByText {
+            paths.append(
                 LatticeDecoder.Path(
                     text: text,
                     words: complete.words,
                     weights: complete.weights,
                     pinyin: complete.pinyin,
                     score: complete.score,
-                    segments: complete.words.count
+                    segments: complete.words.count,
+                    // The oracle exists to check path scores and order, and
+                    // its lattices never mix tolerant edges into the exact
+                    // regime, so the provenance flags carry no information
+                    // here.
+                    usedFuzzy: false,
+                    usedTypoRepair: false
                 )
-            }
-            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.text < $1.text }
-            .prefix(limit)
-            .map { $0 }
+            )
+        }
+        paths.sort { $0.score != $1.score ? $0.score > $1.score : $0.text < $1.text }
+        return Array(paths.prefix(limit))
     }
 }

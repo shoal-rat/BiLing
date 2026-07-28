@@ -60,6 +60,12 @@ public enum RankerModel {
         case .english: f[5] = 1
         case .literal: f[6] = 1
         case .learned: break
+        case .corrected:
+            // A typo-repaired reading behaves like the source that produced
+            // it; the repair cost is already inside the generative score, so
+            // no separate indicator is needed until training data contains
+            // corrected positives to estimate one from.
+            break
         }
         let segments = max(1, candidate.pinyin.split(separator: " ").count)
         f[7] = candidate.source == .sentence ? log(1 + Double(segments)) : 0
