@@ -1,0 +1,71 @@
+Differential test: LatticeDecoder vs exhaustive reference
+=========================================================
+
+Setup
+-----
+ReferenceDecoder (Sources/BackboneEngine/ReferenceDecoder.swift) enumerates
+every complete path through a lattice and ranks them exactly. Both decoders
+score edges through the single shared LatticeEdge.score(afterWord:...) so the
+comparison isolates the decoding strategy. Tests:
+Tests/BackboneEngineTests/DecoderDifferentialTests.swift, deterministic
+SplitMix64 PRNG, fixed seeds, exact numbers reproduce with `swift test`.
+
+Regime 1: production-shaped lattices (seed 0x5EED_B111)
+-------------------------------------------------------
+3000 random lattices: input length 2-8, 1-6 edges per position, spans 1-3,
+lexicon/Latin/name edges, dead-ends and unreachable spans, sparse random
+bigram model. At most 18 distinct last-word states can converge on any
+position, which is below maxStatesPerPosition = 24, so the frontier cap never
+fires. 2646 lattices had at least one sentence path.
+
+  top-1 disagreement          0 / 2646   (0.0%)
+  top-5 score-seq mismatch    0 / 2646   (0.0%)
+  top-5 text overlap          0.9994  (deviation from 1.0 is entirely
+                                       equal-score ties popping in a
+                                       different order; scores identical)
+  lattice empty, ref not      0
+
+The decoder is measurably EXACT whenever the state cap does not fire.
+
+Regime 2: cap deliberately exceeded (seed 0x1D10_CA5E)
+------------------------------------------------------
+400 lattices with 40 distinct words at position 0 (40 last-word states at
+position 1; only 24 survive) and two "idiom" chains per lattice: strong
+conditionals along specific word sequences, the 工程院-院士 shape. This is
+the only structure that makes pruning bite - with independent random
+transitions a strong continuation is as likely to hang off a surviving state,
+and measured disagreement was ~0.
+
+  top-1 disagreement          30 / 400   (7.5%)
+  mean score loss (top-1)     1.50 nats when they disagree
+  top-5 text overlap          0.939
+  top-5 score-seq mismatch    95 / 400   (23.75%)
+  lattice empty, ref not      0
+
+Where the approximation bites hardest
+-------------------------------------
+1. Only past the cap: >24 distinct last-words at one position, i.e. wide
+   abbreviation lattices. Under the cap the decoder is exact.
+2. Only under correlated transitions: the lost path needs a first word whose
+   *prefix* score is below the cap (weak unigram, no incoming bigram) while
+   its *continuation* is strongly predicted. The forward pass ranks states by
+   prefix alone, so exactly those states are trimmed.
+3. Deeper ranks lose more than top-1 (23.75% vs 7.5%): one pruned state
+   deletes whole families of lower-ranked paths, which matters because the
+   n-best list feeds the trigram rescorer and the LLM re-ranker.
+
+Hard invariants (hold in every regime, asserted per lattice)
+------------------------------------------------------------
+- paths sorted by descending score
+- every path is a real connected start-to-end edge chain
+- reported score equals recomputation from that chain (<= 1e-9)
+- no duplicate texts; words/weights/pinyin arrays consistent
+
+Production output identical before/after the scoring refactor
+-------------------------------------------------------------
+.build/release/biling-cli --evaluate Tests/Corpus/derived-dev.tsv \
+    --engine-only --no-context
+
+before: OVERALL n=1626 top1  32.5%  top5  44.2%  cover  55.4%  MRR 0.377
+after:  OVERALL n=1626 top1  32.5%  top5  44.2%  cover  55.4%  MRR 0.377
+(only timing columns jitter; all accuracy fields byte-identical)
