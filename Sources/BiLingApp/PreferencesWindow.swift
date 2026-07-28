@@ -215,6 +215,12 @@ final class PreferencesWindowController: NSWindowController {
         stack.addArrangedSubview(toggleRow("中文标点", detail: "中文语境使用全角标点", keyPath: \.fullWidthPunctuation))
         stack.addArrangedSubview(separator())
         stack.addArrangedSubview(toggleRow("即时学习", detail: "选择一次，下一次立即调整排序", keyPath: \.learningEnabled))
+        stack.addArrangedSubview(separator())
+        stack.addArrangedSubview(toggleRow(
+            "模糊拼音与打字纠错",
+            detail: "z/zh、n/l、an/ang 等模糊音，并容忍一次打字失误",
+            keyPath: \.fuzzyPinyin
+        ))
         return card
     }
 

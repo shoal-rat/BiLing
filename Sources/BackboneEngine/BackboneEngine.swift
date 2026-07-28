@@ -1,20 +1,58 @@
 import Foundation
 import PinyinLattice
 
+/// Which deviations from exact pinyin the engine will read through.
+///
+/// The two halves are separable because they make different claims: fuzzy
+/// syllables say the user *spells* z/zh (etc.) interchangeably, so those
+/// readings belong in the list wherever they rank; typo repair says the user
+/// slipped, which is only worth asserting when the repaired reading beats
+/// everything the literal keystrokes can mean.
+public struct ToleranceOptions: Equatable, Sendable {
+    public var fuzzySyllables: Bool
+    public var typoRepair: Bool
+
+    public init(fuzzySyllables: Bool, typoRepair: Bool) {
+        self.fuzzySyllables = fuzzySyllables
+        self.typoRepair = typoRepair
+    }
+
+    public static let off = ToleranceOptions(fuzzySyllables: false, typoRepair: false)
+    public static let all = ToleranceOptions(fuzzySyllables: true, typoRepair: true)
+
+    var isActive: Bool { fuzzySyllables || typoRepair }
+}
+
 public final class PinyinEngine: @unchecked Sendable {
     public let dictionary: DictTrie
     public let learningStore: any LearningStore
     public let inventory: SyllableInventory
 
+    /// Fuzzy pinyin and typing-slip tolerance. Off by default: with it off the
+    /// engine's output is byte-identical to an engine built before the feature
+    /// existed, and the golden tests hold that invariant.
+    public var tolerance: ToleranceOptions
+
     private let english = EnglishLexicon.shared
+    private let toleranceGenerator: ToleranceGenerator
 
     /// How many characters each syllable may contribute to the lattice.
     /// Swept on the development set; see Docs/architecture-v2.md.
     private let characterFanIn = 20
 
-    public init(dictionary: DictTrie, learningStore: any LearningStore) {
+    /// Characters per *tolerant* syllable reading. Tighter than the exact
+    /// fan-in: each alternate multiplies edges, and a deviant reading has no
+    /// business flooding the lattice it is only a guest in.
+    private let tolerantFanIn = 8
+
+    public init(
+        dictionary: DictTrie,
+        learningStore: any LearningStore,
+        tolerance: ToleranceOptions = .off
+    ) {
         self.dictionary = dictionary
         self.learningStore = learningStore
+        self.tolerance = tolerance
         // Start the Latin word list loading now rather than on the first
         // mixed-script keystroke. Otherwise the engine's answer depends on
         // whether a background load happened to finish, which makes behaviour
@@ -23,6 +61,7 @@ public final class PinyinEngine: @unchecked Sendable {
         EnglishLexicon.shared.prepare()
         let inventory = dictionary.syllables.isEmpty ? SyllableInventory.standard.syllables : dictionary.syllables
         self.inventory = SyllableInventory(inventory)
+        self.toleranceGenerator = ToleranceGenerator(inventory: self.inventory)
     }
 
     public static func production() throws -> PinyinEngine {
@@ -78,7 +117,49 @@ public final class PinyinEngine: @unchecked Sendable {
             )
         }
 
-        for sentence in sentenceCandidates(key: key, limit: 80) { add(sentence) }
+        // Tolerance is read once per keystroke so a preference flip cannot
+        // change the rules halfway through one candidate list.
+        let options = mode == .literal ? .off : tolerance
+        // Tolerant paths compete for n-best slots; without more room they
+        // evict deep exact paths and cost coverage on long input (measured:
+        // five dev rows fell out of the list at the shared 80).
+        let harvest = sentenceCandidates(key: key, limit: options.isActive ? 100 : 80, options: options)
+        for sentence in harvest.exact { add(sentence) }
+
+        // Whole-buffer variants: one deviation applied to the entire key, then
+        // an ordinary exact lookup. This is what lets a repair or fuzzy match
+        // arrive as a single lexicon word (zongguo → 中国, nihaoo → 你好)
+        // instead of a stitch of characters that the decoder would price as
+        // two segments and usually lose.
+        var fuzzyPool = harvest.fuzzy
+        var typoPool = harvest.typoRepaired
+        if options.isActive {
+            for variant in toleranceGenerator.wholeKeyVariants(
+                of: key,
+                fuzzy: options.fuzzySyllables,
+                typos: options.typoRepair
+            ) {
+                let kind = Self.toleranceKind(for: variant.origin)
+                for entry in dictionary.exact(variant.key, limit: 4) {
+                    let candidate = Candidate(
+                        text: entry.text,
+                        pinyin: entry.displayPinyin,
+                        source: .corrected,
+                        consumed: key.count,
+                        score: ScoreModel.segmentLogProbability(
+                            weight: entry.weight,
+                            logTotalWeight: logTotal,
+                            form: .full
+                        ) + kind.logProbability
+                    )
+                    if variant.origin == .fuzzy {
+                        fuzzyPool.append(candidate)
+                    } else {
+                        typoPool.append(candidate)
+                    }
+                }
+            }
+        }
 
         // 简拼: the whole key read as syllable initials (jldx → 吉林大学).
         // When the letters are also full pinyin the interpretation is a long
@@ -179,10 +260,24 @@ public final class PinyinEngine: @unchecked Sendable {
             )
         )
 
+        // Admission for tolerant readings, now that every exact source has
+        // spoken. Fuzzy readings enter wherever their probability puts them —
+        // to a user who merges the sounds they are not deviations. A typo
+        // repair asserts the user mistyped, so it must beat *everything* the
+        // literal keystrokes can honestly mean; below that bar it would only
+        // clutter a list that already has a better answer.
+        if options.isActive {
+            let bestExact = merged.values.map(\.score).max() ?? -.infinity
+            for candidate in typoPool where candidate.score > bestExact { add(candidate) }
+            for candidate in fuzzyPool { add(candidate) }
+        }
+
         let sorted = merged.values.sorted {
             if $0.score != $1.score { return $0.score > $1.score }
             if $0.source != $1.source {
-                let order: [CandidateSource: Int] = [.learned: 0, .sentence: 1, .system: 2, .english: 3, .literal: 4]
+                let order: [CandidateSource: Int] = [
+                    .learned: 0, .sentence: 1, .system: 2, .english: 3, .literal: 4, .corrected: 5,
+                ]
                 return order[$0.source, default: 9] < order[$1.source, default: 9]
             }
             return $0.text.localizedStandardCompare($1.text) == .orderedAscending
@@ -199,14 +294,37 @@ public final class PinyinEngine: @unchecked Sendable {
         )
     }
 
+    /// Sentence candidates split by how they read the keystrokes, so the
+    /// caller can admit exact, fuzzy, and repaired paths under their own
+    /// rules.
+    private struct SentenceHarvest {
+        var exact: [Candidate] = []
+        var fuzzy: [Candidate] = []
+        var typoRepaired: [Candidate] = []
+    }
+
+    private static func toleranceKind(for origin: AlternateOrigin) -> ScoreModel.Tolerance {
+        switch origin {
+        case .fuzzy: .fuzzySyllable
+        case .substitution: .substitution
+        case .omission: .omission
+        case .duplication: .duplication
+        case .transposition: .transposition
+        }
+    }
+
     /// Builds every way the buffer can be cut into words, then hands the
     /// lattice to an exact n-best decoder. Candidate *generation* was measured
     /// to be the binding constraint on accuracy, so the search is exact where
     /// it can afford to be rather than a beam that hopes.
-    private func sentenceCandidates(key: String, limit: Int) -> [Candidate] {
+    private func sentenceCandidates(
+        key: String,
+        limit: Int,
+        options: ToleranceOptions
+    ) -> SentenceHarvest {
         let logTotal = dictionary.logTotalWeight
         let characters = Array(key)
-        guard characters.count > 1 else { return [] }
+        guard characters.count > 1 else { return SentenceHarvest() }
 
         let segmenter = Segmenter(inventory: inventory)
         // Abbreviated readings and Latin words inside the sentence are only
@@ -357,6 +475,83 @@ public final class PinyinEngine: @unchecked Sendable {
             }
         }
 
+        // Tolerant readings: spans of the buffer reinterpreted through a
+        // fuzzy merger or a repaired typing slip, each edge paying that
+        // deviation's log-probability on top of the ordinary word cost.
+        if options.isActive {
+            var typoStarts: Set<Int> = []
+            // Slip repair is offered only where exact segmentation dead-ends:
+            // a position an exact syllable can reach but none can leave. On a
+            // buffer that reads fine end to end there is no dead end and no
+            // repair — that restraint is what keeps ordinary typing untouched
+            // and the lattice bounded on abbreviated typing, where nearly
+            // every position fails to parse but none of it is a typo.
+            if options.typoRepair && !keyIsPurePinyin {
+                var reachedByExact = [Bool](repeating: false, count: characters.count + 1)
+                for position in 0..<characters.count {
+                    for edge in syllableEdges[position] where edge.syllable != "'" {
+                        reachedByExact[edge.end] = true
+                    }
+                }
+                if syllableEdges[0].isEmpty { typoStarts.insert(0) }
+                for position in 1..<characters.count
+                where reachedByExact[position] && syllableEdges[position].isEmpty {
+                    typoStarts.insert(position)
+                }
+            }
+            for alternate in toleranceGenerator.alternates(
+                in: key,
+                fuzzy: options.fuzzySyllables,
+                typoStarts: typoStarts
+            ) {
+                let kind = Self.toleranceKind(for: alternate.origin)
+                // The intended syllable's characters, spanning the typed run.
+                for entry in dictionary.charactersForSyllable(alternate.syllable, limit: tolerantFanIn) {
+                    edges.append(
+                        LatticeEdge(
+                            start: alternate.start,
+                            end: alternate.end,
+                            text: entry.text,
+                            pinyin: entry.displayPinyin,
+                            reading: .tolerant(weight: entry.weight, form: .full, tolerance: kind)
+                        )
+                    )
+                }
+                // Words that *begin* with the intended syllable and continue
+                // on the letters as typed, so 中国 is one edge for zongguo.
+                // A word whose deviant syllable sits mid-word is still
+                // reachable as characters plus the transition model; pricing
+                // that case as a single word would mean scanning every
+                // variant from every earlier position, which is lattice
+                // explosion by another name.
+                var variantCharacters = Array(characters[0..<alternate.start])
+                variantCharacters.append(contentsOf: alternate.syllable)
+                variantCharacters.append(contentsOf: characters[alternate.end...])
+                let syllableLength = alternate.syllable.count
+                for (variantEnd, entry) in dictionary.matches(
+                    in: variantCharacters,
+                    from: alternate.start,
+                    maxEntriesPerKey: 4
+                ) {
+                    // The word must cover the whole reinterpreted syllable —
+                    // a key that stops inside it describes different letters
+                    // than the user typed.
+                    guard variantEnd >= alternate.start + syllableLength else { continue }
+                    let typedEnd = alternate.end + (variantEnd - alternate.start - syllableLength)
+                    guard typedEnd <= characters.count else { continue }
+                    edges.append(
+                        LatticeEdge(
+                            start: alternate.start,
+                            end: typedEnd,
+                            text: entry.text,
+                            pinyin: entry.displayPinyin,
+                            reading: .tolerant(weight: entry.weight, form: .full, tolerance: kind)
+                        )
+                    )
+                }
+            }
+        }
+
         let paths = LatticeDecoder.nBest(
             edges: edges,
             inputLength: characters.count,
@@ -372,7 +567,8 @@ public final class PinyinEngine: @unchecked Sendable {
         // applying the richer model to the ~80 surviving candidates instead
         // costs nothing during search. Only the language-model term is
         // adjusted, so the decoder's written-form costs survive.
-        return paths.map { path in
+        var harvest = SentenceHarvest()
+        for path in paths {
             let adjustment = ScoreModel.trigramAdjustment(
                 words: path.words,
                 weights: path.weights,
@@ -384,14 +580,23 @@ public final class PinyinEngine: @unchecked Sendable {
                     dictionary.trigram(first, second, next)
                 }
             )
-            return Candidate(
+            let candidate = Candidate(
                 text: spaced(path.text, words: path.pinyin.count),
                 pinyin: path.pinyin.joined(separator: " "),
-                source: .sentence,
+                source: path.usedFuzzy || path.usedTypoRepair ? .corrected : .sentence,
                 consumed: key.count,
                 score: path.score + adjustment
             )
+            // A path with both kinds of deviation faces the stricter gate.
+            if path.usedTypoRepair {
+                harvest.typoRepaired.append(candidate)
+            } else if path.usedFuzzy {
+                harvest.fuzzy.append(candidate)
+            } else {
+                harvest.exact.append(candidate)
+            }
         }
+        return harvest
     }
 
     /// Whole-buffer personal names: a surname followed by one or two

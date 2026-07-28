@@ -45,6 +45,57 @@ public enum ScoreModel {
         }
     }
 
+    /// How the typed letters deviate from the intended syllable. Priced like
+    /// `TypingForm`: another factor in the same generative story, so a fuzzy
+    /// or repaired reading is a log-probability on the shared scale, never an
+    /// additive bonus. Exact typing is the untyped default and pays nothing —
+    /// log P(no deviation) ≈ log 1 = 0.
+    ///
+    /// These are usage priors, not measured rates; their order and rough
+    /// spacing is what matters. A fuzzy merger is far likelier than any slip
+    /// (the user opted in because it *is* how they spell), doubled letters
+    /// and swaps are the common mechanical slips, and a wrong or missing
+    /// letter is rarer still — it also generates the widest net of readings,
+    /// so it must pay the most to stay in its place.
+    public enum Tolerance: Sendable {
+        /// A dialect merger the user enabled: z/zh, c/ch, s/sh, n/l, f/h,
+        /// an/ang, en/eng, in/ing (and thereby ian/iang, uan/uang).
+        case fuzzySyllable
+        /// Two adjacent letters swapped: nihoa → nihao.
+        case transposition
+        /// One letter doubled: nihaoo → nihao.
+        case duplication
+        /// A physical QWERTY neighbour hit instead: zhpng → zhong.
+        case substitution
+        /// One letter left out: wmen → women.
+        case omission
+
+        public var logProbability: Double {
+            switch self {
+            // Sized against the lexicon, not guessed. Two measured bounds box
+            // the value in. It must cost *more* than the widest gap an exact
+            // reading can be beaten by: 6.78 nats of raw frequency (zhai 摘 →
+            // zai 在) plus the structural advantage of a fuzzy rival that is a
+            // whole-buffer word while the exact reading is a multi-segment
+            // stitch paying an unsupported transition — ≈ 10 nats in total on
+            // the worst dev case (碳素材料 vs 搪塑材料 on tansucailiao). It
+            // must cost *less* than the ≈ 11.5-nat margin by which a genuine
+            // rescue (zongguo → 中国 over the 总过 stitch) wins. −10.8 sits
+            // between the two with margin on the side that protects exact
+            // typing, because that is the side the user cannot toggle off.
+            case .fuzzySyllable: log(0.00002)
+            case .transposition: log(0.012)
+            case .duplication: log(0.012)
+            case .substitution: log(0.006)
+            // The rarest slip and the widest net — and, measured, the one
+            // that collides with abbreviated typing: `shp…` is far more
+            // likely 上海浦东 as initials than 是 with its i omitted, so
+            // omission must stay well under the initials form cost.
+            case .omission: log(0.0015)
+            }
+        }
+    }
+
     /// Latin vocabulary has no corpus counts, so it enters the same unigram
     /// model through a stand-in frequency. The values are chosen relative to
     /// real Chinese counts: a term the user spelled out in full is about as

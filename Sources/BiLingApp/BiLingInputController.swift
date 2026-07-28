@@ -192,6 +192,10 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         }
         activeContext = documentContext.isEmpty ? committedContext : documentContext
 
+        // Read the fuzzy preference per keystroke: the preferences window is
+        // reachable mid-composition, and a toggle should apply to the next
+        // candidate list, not the next launch.
+        runtime.engine.tolerance = AppSettings.shared.fuzzyPinyin ? .all : .off
         let result = runtime.engine.candidates(
             for: rawInput,
             context: activeContext,

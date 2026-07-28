@@ -5,7 +5,9 @@ import Foundation
 final class Runtime {
     static let shared: Runtime = {
         do {
-            return Runtime(engine: try PinyinEngine.production())
+            let engine = try PinyinEngine.production()
+            engine.tolerance = AppSettings.shared.fuzzyPinyin ? .all : .off
+            return Runtime(engine: engine)
         } catch {
             fatalError("BiLing candidate engine could not start: \(error.localizedDescription)")
         }

@@ -9,6 +9,9 @@ public enum CandidateSource: String, Codable, Sendable {
     case english
     case name
     case literal
+    /// Read through fuzzy pinyin or a repaired typing slip — the typed
+    /// letters do not literally spell this candidate's pinyin.
+    case corrected
 }
 
 public struct Candidate: Codable, Hashable, Identifiable, Sendable {

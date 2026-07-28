@@ -48,9 +48,18 @@ enum Evaluate {
         let milliseconds: Double
     }
 
-    static func run(corpus: URL, ranker: QwenRanker?, useContext: Bool) throws {
+    static func run(
+        corpus: URL,
+        ranker: QwenRanker?,
+        useContext: Bool,
+        tolerance: ToleranceOptions = .off
+    ) throws {
         let rows = try parse(corpus)
-        let engine = try PinyinEngine(dictionary: .bundled(), learningStore: MemoryLearningStore())
+        let engine = try PinyinEngine(
+            dictionary: .bundled(),
+            learningStore: MemoryLearningStore(),
+            tolerance: tolerance
+        )
         EnglishLexicon.shared.warm()
         var outcomes: [Outcome] = []
         let clock = ContinuousClock()

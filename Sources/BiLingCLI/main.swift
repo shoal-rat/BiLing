@@ -5,7 +5,7 @@ import LLMRanker
 
 func usage() -> Never {
     print("""
-    Usage: biling-cli [--xpc | --engine-only] [--model path] [--adapter path] \
+    Usage: biling-cli [--xpc | --engine-only] [--fuzzy] [--model path] [--adapter path] \
     [--context text] PINYIN
            biling-cli --export-training-data DIR
     """)
@@ -20,6 +20,7 @@ var pinyin: String?
 var useXPC = false
 var noContext = false
 var engineOnly = false
+var fuzzy = false
 var evaluateCorpus: URL?
 var exportDirectory: String?
 while !arguments.isEmpty {
@@ -31,6 +32,8 @@ while !arguments.isEmpty {
         noContext = true
     case "--engine-only":
         engineOnly = true
+    case "--fuzzy":
+        fuzzy = true
     case "--evaluate":
         guard !arguments.isEmpty else { usage() }
         evaluateCorpus = URL(fileURLWithPath: arguments.removeFirst())
@@ -67,7 +70,12 @@ EnglishLexicon.shared.warm()
 if let evaluateCorpus {
     do {
         let ranker = engineOnly ? nil : try QwenRanker(modelURL: modelURL)
-        try Evaluate.run(corpus: evaluateCorpus, ranker: ranker, useContext: !noContext)
+        try Evaluate.run(
+            corpus: evaluateCorpus,
+            ranker: ranker,
+            useContext: !noContext,
+            tolerance: fuzzy ? .all : .off
+        )
         exit(0)
     } catch {
         FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
@@ -80,7 +88,8 @@ guard let pinyin else { usage() }
 do {
     let engine = try PinyinEngine(
         dictionary: .bundled(),
-        learningStore: MemoryLearningStore()
+        learningStore: MemoryLearningStore(),
+        tolerance: fuzzy ? .all : .off
     )
     let clock = ContinuousClock()
     let engineStart = clock.now
