@@ -4,95 +4,8 @@ import IPCProtocol
 import LLMRanker
 import Security
 
-/// Owns the Qwen instance with a lazy-load / idle-unload lifecycle.
-///
-/// The daemon starts at login, but weights are mapped only when the first
-/// ranking request arrives and are released again after ten minutes without
-/// requests. Idle cost is a few megabytes; reloading from the mmap'd GGUF on
-/// the next keystroke takes well under a second, during which the input
-/// method's deterministic candidates remain fully usable.
-final class RankerManager: @unchecked Sendable {
-    private let modelURL: URL
-    private let lock = NSLock()
-    private var ranker: QwenRanker?
-    private var usingPersonalModel = false
-    private var lastUse = ContinuousClock.now
-    private var lastLoadError: String?
-    private let idleTimer: DispatchSourceTimer
-
-    private static let idleUnloadAfter: Duration = .seconds(600)
-
-    init(modelURL: URL) {
-        self.modelURL = modelURL
-        idleTimer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "com.biling.engine-idle", qos: .utility))
-        idleTimer.schedule(deadline: .now() + 60, repeating: 60, leeway: .seconds(10))
-        idleTimer.setEventHandler { [weak self] in
-            self?.unloadIfIdle()
-        }
-        idleTimer.resume()
-    }
-
-    func currentRanker() throws -> QwenRanker {
-        lock.lock()
-        defer { lock.unlock() }
-        lastUse = .now
-        if let ranker {
-            return ranker
-        }
-        do {
-            // Re-resolved on every load, so a model trained five minutes ago
-            // is picked up at the next lazy load without a reinstall.
-            let personalModel = ModelLocator.personalModelURL()
-            let loaded = try QwenRanker(
-                modelURL: personalModel ?? modelURL,
-                adapterURL: ModelLocator.adapterURL(),
-                adapterScale: ModelLocator.adapterScale()
-            )
-            usingPersonalModel = personalModel != nil
-            ranker = loaded
-            lastLoadError = nil
-            return loaded
-        } catch {
-            lastLoadError = error.localizedDescription
-            throw error
-        }
-    }
-
-    func cancel(clientID: UUID, generation: UInt64) {
-        lock.lock()
-        let active = ranker
-        lock.unlock()
-        active?.cancel(clientID: clientID, generation: generation)
-    }
-
-    func statusLine() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        if let ranker {
-            let marker = usingPersonalModel ? " · 个人模型" : ""
-            return "ready|\(ranker.modelDescription)\(marker)"
-        }
-        if let lastLoadError {
-            return "error|\(lastLoadError)"
-        }
-        return "ready|Qwen 待机中，首次输入时加载"
-    }
-
-    func modelDescription() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let ranker else { return "Qwen3-0.6B-Base（待机）" }
-        return ranker.modelDescription + (usingPersonalModel ? " · 个人模型" : "")
-    }
-
-    private func unloadIfIdle() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard ranker != nil, ContinuousClock.now - lastUse > Self.idleUnloadAfter else { return }
-        ranker = nil
-        FileHandle.standardOutput.write(Data("BiLing engine: released idle Qwen instance\n".utf8))
-    }
-}
+// RankerManager (lazy load, idle unload, permanent disable on load failure)
+// lives in LLMRanker so its lifecycle policy is unit-testable.
 
 final class EngineService: NSObject, BiLingEngineXPC {
     private let manager: RankerManager
@@ -109,7 +22,25 @@ final class EngineService: NSObject, BiLingEngineXPC {
         Task {
             do {
                 let ranker = try manager.currentRanker()
-                let ranked = try await ranker.rank(request)
+                guard let ranked = try await ranker.rank(request) else {
+                    // The model ran out of wall-clock budget: ship the
+                    // deterministic order untouched, flagged so the client
+                    // keeps its own ranking and shows the badge.
+                    reply(
+                        IPCCoder.encode(
+                            RankReply(
+                                clientID: request.clientID,
+                                generation: request.generation,
+                                orderedCandidates: request.candidates,
+                                scores: [:],
+                                latencyMilliseconds: 0,
+                                modelDescription: manager.modelDescription(),
+                                error: "Qwen 超时，已保留确定性排序"
+                            )
+                        )
+                    )
+                    return
+                }
                 // Report the manager's description so callers see the
                 // 个人模型 marker; the ranker itself only knows the file.
                 reply(

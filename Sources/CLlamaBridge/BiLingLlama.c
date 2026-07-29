@@ -3,10 +3,13 @@
 #include <Accelerate/Accelerate.h>
 #include <llama.h>
 #include <math.h>
+#include <stdatomic.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 // The committed context is re-sent on every keystroke, but between keystrokes it
 // is either identical or extended. Sequence 0 keeps the context's KV cells alive
@@ -16,12 +19,23 @@
 #define BILING_CONTEXT_LIMIT 1300
 #define BILING_CONTEXT_KEEP 900
 
+// Must match context_params.n_seq_max below. Sequence 0 is the committed
+// context; sequences 1..(BILING_MAX_SEQUENCES - 1) are candidate scratch.
+#define BILING_MAX_SEQUENCES 48
+
 struct BiLingLlama {
     struct llama_model * model;
     struct llama_context * context;
     const struct llama_vocab * vocab;
     struct llama_adapter_lora * adapter;
-    volatile bool cancelled;
+    // Written from the caller's cancel thread, read from the scoring thread and
+    // from llama.cpp's abort callback mid-graph: must be a real atomic, not
+    // `volatile`, so the cross-thread visibility is guaranteed.
+    _Atomic bool cancelled;
+    // Monotonic-clock deadline for the in-flight scoring call, in nanoseconds.
+    // Zero means no deadline. Set/cleared by biling_llama_score around the
+    // work, read by the abort callback.
+    _Atomic uint64_t deadline_ns;
     char description[256];
 
     // Cached state of sequence 0 (the committed context).
@@ -41,9 +55,38 @@ static void write_error(char * target, size_t size, const char * message) {
     snprintf(target, size, "%s", message);
 }
 
+static uint64_t monotonic_ns(void) {
+    return clock_gettime_nsec_np(CLOCK_MONOTONIC);
+}
+
+// Returns 0 to keep going, or the error code the caller should surface:
+// BILING_LLAMA_CANCELLED when a newer request superseded this one,
+// BILING_LLAMA_TIMED_OUT when the wall-clock budget ran out. Cancellation is
+// checked first so an explicit cancel is reported as such even after expiry.
+static int interrupt_code(struct BiLingLlama * instance) {
+    if (atomic_load_explicit(&instance->cancelled, memory_order_relaxed)) {
+        return BILING_LLAMA_CANCELLED;
+    }
+    const uint64_t deadline = atomic_load_explicit(&instance->deadline_ns, memory_order_relaxed);
+    if (deadline != 0 && monotonic_ns() >= deadline) {
+        return BILING_LLAMA_TIMED_OUT;
+    }
+    return 0;
+}
+
+static void write_interrupt_error(int code, char * error, size_t error_size) {
+    write_error(
+        error,
+        error_size,
+        code == BILING_LLAMA_TIMED_OUT ? "Scoring timed out." : "Scoring was cancelled."
+    );
+}
+
+// Installed via llama_set_abort_callback: called between graph nodes during
+// llama_decode, so a cancel or an expired deadline aborts the decode within
+// milliseconds instead of after the full batch.
 static bool should_abort(void * data) {
-    const struct BiLingLlama * instance = (const struct BiLingLlama *) data;
-    return instance->cancelled;
+    return interrupt_code((struct BiLingLlama *) data) != 0;
 }
 
 static int tokenize(
@@ -102,6 +145,13 @@ static void invalidate_cache(struct BiLingLlama * instance) {
     llama_memory_clear(llama_get_memory(instance->context), false);
 }
 
+static void clear_candidate_sequences(struct BiLingLlama * instance) {
+    llama_memory_t memory = llama_get_memory(instance->context);
+    for (llama_seq_id seq = 1; seq < BILING_MAX_SEQUENCES; seq++) {
+        llama_memory_seq_rm(memory, seq, -1, -1);
+    }
+}
+
 static bool store_cached_tokens(struct BiLingLlama * instance, const llama_token * tokens, int count) {
     if (count > instance->cached_capacity) {
         llama_token * grown = (llama_token *) realloc(
@@ -136,9 +186,19 @@ BiLingLlama * biling_llama_open(
     model_params.use_mmap = true;
     model_params.use_mlock = false;
 
+    // The GGUF is untrusted input (users can point BILING_MODEL_PATH anywhere).
+    // llama.cpp validates the magic/metadata and returns NULL on anything it
+    // rejects; treat every NULL and every implausible vocab as a load failure
+    // rather than limping on.
     struct llama_model * model = llama_model_load_from_file(model_path, model_params);
     if (model == NULL) {
-        write_error(error, error_size, "llama.cpp could not load the bundled GGUF model.");
+        write_error(error, error_size, "llama.cpp could not load the GGUF model (missing, corrupt, or out of memory).");
+        return NULL;
+    }
+    const struct llama_vocab * vocab = llama_model_get_vocab(model);
+    if (vocab == NULL || llama_vocab_n_tokens(vocab) < 1) {
+        llama_model_free(model);
+        write_error(error, error_size, "The GGUF model has no usable vocabulary.");
         return NULL;
     }
 
@@ -146,7 +206,7 @@ BiLingLlama * biling_llama_open(
     context_params.n_ctx = 1536;
     context_params.n_batch = 1536;
     context_params.n_ubatch = 512;
-    context_params.n_seq_max = 48;
+    context_params.n_seq_max = BILING_MAX_SEQUENCES;
     context_params.n_threads = 6;
     context_params.n_threads_batch = 8;
     context_params.embeddings = false;
@@ -169,8 +229,9 @@ BiLingLlama * biling_llama_open(
     }
     instance->model = model;
     instance->context = context;
-    instance->vocab = llama_model_get_vocab(model);
-    instance->cancelled = false;
+    instance->vocab = vocab;
+    atomic_store(&instance->cancelled, false);
+    atomic_store(&instance->deadline_ns, 0);
     llama_set_abort_callback(context, should_abort, instance);
 
     const int vocabulary_size = llama_vocab_n_tokens(instance->vocab);
@@ -275,9 +336,17 @@ static int refresh_context(
     const int decode_result = llama_decode(instance->context, batch);
     llama_batch_free(batch);
     if (decode_result != 0) {
+        // An aborted decode leaves partially processed ubatches in memory, so
+        // the cache must be rebuilt from scratch either way.
         invalidate_cache(instance);
-        write_error(error, error_size, decode_result == 2 ? "Scoring was cancelled." : "Qwen decode failed.");
-        return decode_result == 2 ? -2 : -4;
+        if (decode_result == 2) {
+            const int code = interrupt_code(instance);
+            const int mapped = code != 0 ? code : BILING_LLAMA_CANCELLED;
+            write_interrupt_error(mapped, error, error_size);
+            return mapped;
+        }
+        write_error(error, error_size, "Qwen decode failed.");
+        return -4;
     }
 
     const float * logits = llama_get_logits_ith(instance->context, -1);
@@ -298,8 +367,22 @@ static int refresh_context(
     return 0;
 }
 
-int biling_llama_score(
-    BiLingLlama * instance,
+// Per-candidate scoring plan, derived from the merged (context + candidate)
+// tokenization. Token boundaries can merge across the join, so the candidate
+// is never tokenized on its own: the merged tokens are compared against the
+// context tokens and only the divergent suffix is scored.
+struct CandidatePlan {
+    llama_token * owned;        // full merged tokenization (owner for free())
+    const llama_token * tokens; // kept view (owned + drop_front)
+    int count;                  // kept merged token count
+    int feed_from;              // first kept token index fed to the model
+    int feed_count;             // fed tokens (through the penultimate one)
+    int scored_count;           // suffix tokens whose log-prob is accumulated
+    int wave_row;               // this candidate's first row in the current wave batch
+};
+
+static int score_with_deadline(
+    struct BiLingLlama * instance,
     const char * context,
     const char * const * candidates,
     int candidate_count,
@@ -307,149 +390,306 @@ int biling_llama_score(
     char * error,
     size_t error_size
 ) {
-    if (instance == NULL || candidates == NULL || scores == NULL || candidate_count < 1) {
-        write_error(error, error_size, "Invalid scoring request.");
-        return -1;
-    }
-    if (instance->cancelled) {
-        write_error(error, error_size, "Scoring was cancelled.");
-        return -2;
+    int early = interrupt_code(instance);
+    if (early != 0) {
+        write_interrupt_error(early, error, error_size);
+        return early;
     }
 
     llama_memory_t memory = llama_get_memory(instance->context);
     // Candidate sequences from any previous request (including error exits)
     // must not survive into this one; sequence 0 is the only persistent state.
-    for (llama_seq_id seq = 1; seq < 48; seq++) {
-        llama_memory_seq_rm(memory, seq, -1, -1);
-    }
+    clear_candidate_sequences(instance);
 
     const char * prompt = context == NULL || context[0] == '\0' ? "。" : context;
-    llama_token * context_tokens = NULL;
-    int context_count = tokenize(instance->vocab, prompt, true, &context_tokens);
-    if (context_count < 1) {
+    llama_token * context_full = NULL;
+    const int context_full_count = tokenize(instance->vocab, prompt, true, &context_full);
+    if (context_full_count < 1) {
         write_error(error, error_size, "Could not tokenize the committed context.");
         return -3;
     }
-    if (context_count > BILING_CONTEXT_LIMIT) {
-        const int keep = BILING_CONTEXT_KEEP;
-        memmove(
-            context_tokens,
-            context_tokens + (context_count - keep),
-            sizeof(llama_token) * (size_t) keep
-        );
-        context_count = keep;
-    }
+    // Token-level trim with hysteresis. drop_front is also applied to every
+    // merged tokenization below so context and merged token indices stay
+    // aligned; BPE divergence is local to the join, far past drop_front.
+    const int drop_front = context_full_count > BILING_CONTEXT_LIMIT
+        ? context_full_count - BILING_CONTEXT_KEEP
+        : 0;
+    const llama_token * context_tokens = context_full + drop_front;
+    const int context_count = context_full_count - drop_front;
 
-    const int context_result = refresh_context(instance, context_tokens, context_count, error, error_size);
-    free(context_tokens);
-    if (context_result != 0) {
-        return context_result;
+    int result = refresh_context(instance, context_tokens, context_count, error, error_size);
+    if (result != 0) {
+        free(context_full);
+        return result;
     }
 
     const int vocabulary_size = llama_vocab_n_tokens(instance->vocab);
     const float * context_logits = instance->cached_logits;
     const double context_logsumexp = instance->cached_logsumexp;
+    const int n_ctx = (int) llama_n_ctx(instance->context);
+    const int n_batch = (int) llama_n_batch(instance->context);
+    // With a unified KV cache, context cells plus every candidate row decoded
+    // in one wave must fit in n_ctx together.
+    int wave_capacity = n_ctx - context_count;
+    if (wave_capacity > n_batch) {
+        wave_capacity = n_batch;
+    }
+    if (wave_capacity < 1) {
+        free(context_full);
+        write_error(error, error_size, "The context leaves no room for candidate scoring.");
+        return -7;
+    }
 
-    llama_token ** candidate_tokens = (llama_token **) calloc((size_t) candidate_count, sizeof(llama_token *));
-    int * candidate_lengths = (int *) calloc((size_t) candidate_count, sizeof(int));
-    int * batch_offsets = (int *) calloc((size_t) candidate_count, sizeof(int));
-    if (candidate_tokens == NULL || candidate_lengths == NULL || batch_offsets == NULL) {
-        free(candidate_tokens);
-        free(candidate_lengths);
-        free(batch_offsets);
-        write_error(error, error_size, "Out of memory while tokenizing candidates.");
+    struct CandidatePlan * plans =
+        (struct CandidatePlan *) calloc((size_t) candidate_count, sizeof(struct CandidatePlan));
+    const size_t prompt_length = strlen(prompt);
+    char * merged_text = NULL;
+    size_t merged_capacity = 0;
+    if (plans == NULL) {
+        free(context_full);
+        write_error(error, error_size, "Out of memory while planning candidates.");
         return -6;
     }
 
-    int total_continuation_tokens = 0;
+    // Plan every candidate: tokenize (context + candidate) as one string,
+    // find the longest common token prefix with the context tokenization, and
+    // mark the remainder for scoring.
     for (int index = 0; index < candidate_count; index++) {
-        candidate_lengths[index] = tokenize(
-            instance->vocab,
-            candidates[index],
-            false,
-            &candidate_tokens[index]
-        );
-        if (candidate_lengths[index] < 1) {
-            scores[index] = -INFINITY;
-        } else {
-            scores[index] = (float) ((double) context_logits[candidate_tokens[index][0]] - context_logsumexp);
-            total_continuation_tokens += candidate_lengths[index] - 1;
+        struct CandidatePlan * plan = &plans[index];
+        scores[index] = -INFINITY;
+        const char * candidate = candidates[index];
+        if (candidate == NULL || candidate[0] == '\0') {
+            continue;
         }
+        const size_t candidate_length = strlen(candidate);
+        const size_t needed = prompt_length + candidate_length + 1;
+        if (needed > merged_capacity) {
+            char * grown = (char *) realloc(merged_text, needed);
+            if (grown == NULL) {
+                result = -6;
+                write_error(error, error_size, "Out of memory while merging candidate text.");
+                break;
+            }
+            merged_text = grown;
+            merged_capacity = needed;
+        }
+        memcpy(merged_text, prompt, prompt_length);
+        memcpy(merged_text + prompt_length, candidate, candidate_length + 1);
+
+        llama_token * merged_full = NULL;
+        const int merged_full_count = tokenize(instance->vocab, merged_text, true, &merged_full);
+        if (merged_full_count < 1 || merged_full_count - drop_front < 1) {
+            free(merged_full);
+            continue;
+        }
+        const llama_token * merged = merged_full + drop_front;
+        const int merged_count = merged_full_count - drop_front;
+
+        int lcp = 0;
+        const int comparable = context_count < merged_count ? context_count : merged_count;
+        while (lcp < comparable && context_tokens[lcp] == merged[lcp]) {
+            lcp++;
+        }
+        if (lcp >= merged_count) {
+            // The merged string adds no tokens beyond the context prefix
+            // (empty or fully absorbed candidate): nothing scoreable.
+            free(merged_full);
+            continue;
+        }
+
+        int feed_from;
+        if (lcp == context_count) {
+            // No boundary merge: the whole context KV is reusable and the
+            // first suffix token is priced from the cached context logits.
+            scores[index] = (float) ((double) context_logits[merged[lcp]] - context_logsumexp);
+            plan->scored_count = merged_count - lcp;
+            feed_from = lcp;
+        } else {
+            // The join merged into the context's tail: roll back to the common
+            // prefix and re-decode from one token before the divergence so the
+            // first divergent token gets a real conditional probability.
+            // (lcp == 0 would need P(first token) from a model with no BOS;
+            // that token is skipped — unreachable with the sentinel context.)
+            const int score_from = lcp > 0 ? lcp : 1;
+            plan->scored_count = merged_count - score_from;
+            if (plan->scored_count < 1) {
+                free(merged_full);
+                continue;
+            }
+            scores[index] = 0.0f;
+            feed_from = score_from - 1;
+        }
+        const int feed_count = (merged_count - 1) - feed_from;
+        if (feed_count > wave_capacity) {
+            // Cannot fit this candidate's continuation in the KV window.
+            scores[index] = -INFINITY;
+            free(merged_full);
+            plan->scored_count = 0;
+            continue;
+        }
+        plan->owned = merged_full;
+        plan->tokens = merged;
+        plan->count = merged_count;
+        plan->feed_from = feed_from;
+        plan->feed_count = feed_count;
     }
 
-    int result = 0;
-    if (total_continuation_tokens > 0) {
-        for (int index = 0; index < candidate_count; index++) {
-            if (candidate_lengths[index] > 1) {
-                llama_memory_seq_cp(memory, 0, index + 1, 0, -1);
+    // Decode the planned continuations in waves that respect the KV window,
+    // harvesting logits after each wave (llama.cpp reuses the logits buffer on
+    // the next decode). Cancellation and the deadline are re-checked between
+    // waves and between candidates, not just inside llama_decode.
+    int index = 0;
+    while (result == 0 && index < candidate_count) {
+        const int wave_start = index;
+        int wave_rows = 0;
+        while (index < candidate_count) {
+            const int rows = plans[index].feed_count;
+            if (plans[index].owned == NULL || rows == 0) {
+                index++;
+                continue;
             }
+            if (wave_rows > 0 && wave_rows + rows > wave_capacity) {
+                break;
+            }
+            plans[index].wave_row = wave_rows;
+            wave_rows += rows;
+            index++;
+        }
+        if (wave_rows == 0) {
+            continue;
+        }
+        result = interrupt_code(instance);
+        if (result != 0) {
+            write_interrupt_error(result, error, error_size);
+            break;
         }
 
-        struct llama_batch continuation = llama_batch_init(total_continuation_tokens, 0, 1);
+        struct llama_batch wave = llama_batch_init(wave_rows, 0, 1);
         int batch_index = 0;
-        for (int index = 0; index < candidate_count; index++) {
-            batch_offsets[index] = batch_index;
-            // Decode through the penultimate token. Each output row scores the next token.
-            for (int token_index = 0; token_index < candidate_lengths[index] - 1; token_index++) {
-                continuation.token[batch_index] = candidate_tokens[index][token_index];
-                continuation.pos[batch_index] = context_count + token_index;
-                continuation.n_seq_id[batch_index] = 1;
-                continuation.seq_id[batch_index][0] = index + 1;
-                continuation.logits[batch_index] = 1;
+        for (int c = wave_start; c < index; c++) {
+            const struct CandidatePlan * plan = &plans[c];
+            if (plan->owned == NULL || plan->feed_count == 0) {
+                continue;
+            }
+            const llama_seq_id seq = (llama_seq_id) (c + 1);
+            if (plan->feed_from > 0) {
+                // Share the common-prefix KV cells instead of re-decoding them.
+                llama_memory_seq_cp(memory, 0, seq, 0, plan->feed_from);
+            }
+            for (int t = 0; t < plan->feed_count; t++) {
+                wave.token[batch_index] = plan->tokens[plan->feed_from + t];
+                wave.pos[batch_index] = plan->feed_from + t;
+                wave.n_seq_id[batch_index] = 1;
+                wave.seq_id[batch_index][0] = seq;
+                wave.logits[batch_index] = 1;
                 batch_index++;
             }
         }
-        continuation.n_tokens = batch_index;
-        const int decode_result = llama_decode(instance->context, continuation);
-        llama_batch_free(continuation);
+        wave.n_tokens = batch_index;
+        const int decode_result = llama_decode(instance->context, wave);
+        llama_batch_free(wave);
         if (decode_result != 0) {
-            invalidate_cache(instance);
-            write_error(error, error_size, decode_result == 2 ? "Scoring was cancelled." : "Qwen continuation decode failed.");
-            result = decode_result == 2 ? -2 : -7;
-        } else {
-            for (int index = 0; index < candidate_count; index++) {
-                const int length = candidate_lengths[index];
-                for (int token_index = 1; token_index < length; token_index++) {
-                    const int row_index = batch_offsets[index] + token_index - 1;
-                    const float * row = llama_get_logits_ith(instance->context, row_index);
-                    if (row == NULL) {
-                        scores[index] = -INFINITY;
-                        break;
-                    }
-                    const double row_logsum = row_logsumexp(row, vocabulary_size, instance->scratch);
-                    scores[index] += (float) ((double) row[candidate_tokens[index][token_index]] - row_logsum);
-                }
-                // Normalize gently for BPE fragmentation while keeping multi-token errors costly.
-                if (length > 1 && isfinite(scores[index])) {
-                    scores[index] /= sqrtf((float) length);
-                }
+            if (decode_result == 2) {
+                const int code = interrupt_code(instance);
+                result = code != 0 ? code : BILING_LLAMA_CANCELLED;
+                write_interrupt_error(result, error, error_size);
+                // Sequence 0 was not part of this batch; only candidate
+                // sequences hold partial state and are cleared below.
+            } else {
+                invalidate_cache(instance);
+                write_error(error, error_size, "Qwen continuation decode failed.");
+                result = -7;
             }
-            for (int index = 0; index < candidate_count; index++) {
-                if (candidate_lengths[index] > 1) {
-                    llama_memory_seq_rm(memory, index + 1, -1, -1);
+            break;
+        }
+
+        for (int c = wave_start; c < index && result == 0; c++) {
+            const struct CandidatePlan * plan = &plans[c];
+            if (plan->owned == NULL || plan->feed_count == 0) {
+                continue;
+            }
+            result = interrupt_code(instance);
+            if (result != 0) {
+                write_interrupt_error(result, error, error_size);
+                break;
+            }
+            for (int r = 0; r < plan->feed_count; r++) {
+                const float * row = llama_get_logits_ith(instance->context, plan->wave_row + r);
+                if (row == NULL) {
+                    scores[c] = -INFINITY;
+                    break;
                 }
+                const llama_token target = plan->tokens[plan->feed_from + r + 1];
+                const double row_logsum = row_logsumexp(row, vocabulary_size, instance->scratch);
+                scores[c] += (float) ((double) row[target] - row_logsum);
+            }
+        }
+        for (int c = wave_start; c < index; c++) {
+            if (plans[c].owned != NULL && plans[c].feed_count > 0) {
+                llama_memory_seq_rm(memory, (llama_seq_id) (c + 1), -1, -1);
             }
         }
     }
 
-    for (int index = 0; index < candidate_count; index++) {
-        free(candidate_tokens[index]);
+    if (result == 0) {
+        // Normalize gently for BPE fragmentation while keeping multi-token
+        // errors costly. The divisor is the number of merged suffix tokens
+        // actually scored, which equals the candidate's own token count
+        // whenever no boundary merge occurred.
+        for (int c = 0; c < candidate_count; c++) {
+            if (plans[c].scored_count > 1 && isfinite(scores[c])) {
+                scores[c] /= sqrtf((float) plans[c].scored_count);
+            }
+        }
     }
-    free(candidate_tokens);
-    free(candidate_lengths);
-    free(batch_offsets);
+
+    // An aborted wave may leave partial candidate cells behind; drop them so
+    // only sequence 0 persists regardless of how this call ended.
+    clear_candidate_sequences(instance);
+    for (int c = 0; c < candidate_count; c++) {
+        free(plans[c].owned);
+    }
+    free(plans);
+    free(merged_text);
+    free(context_full);
+    return result;
+}
+
+int biling_llama_score(
+    BiLingLlama * instance,
+    const char * context,
+    const char * const * candidates,
+    int candidate_count,
+    long timeout_ms,
+    float * scores,
+    char * error,
+    size_t error_size
+) {
+    if (instance == NULL || candidates == NULL || scores == NULL
+        || candidate_count < 1 || candidate_count > BILING_MAX_SEQUENCES - 1) {
+        write_error(error, error_size, "Invalid scoring request.");
+        return -1;
+    }
+    const uint64_t deadline = timeout_ms > 0
+        ? monotonic_ns() + (uint64_t) timeout_ms * 1000000ull
+        : 0;
+    atomic_store(&instance->deadline_ns, deadline);
+    const int result = score_with_deadline(
+        instance, context, candidates, candidate_count, scores, error, error_size
+    );
+    atomic_store(&instance->deadline_ns, 0);
     return result;
 }
 
 void biling_llama_cancel(BiLingLlama * instance) {
     if (instance != NULL) {
-        instance->cancelled = true;
+        atomic_store(&instance->cancelled, true);
     }
 }
 
 void biling_llama_reset_cancel(BiLingLlama * instance) {
     if (instance != NULL) {
-        instance->cancelled = false;
+        atomic_store(&instance->cancelled, false);
     }
 }
 

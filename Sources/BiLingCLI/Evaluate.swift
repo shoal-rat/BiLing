@@ -118,7 +118,9 @@ enum Evaluate {
                     committedContext: context,
                     candidates: candidates.prefix(30).map(\.text)
                 )
-                if let reply = try? runBlocking({ try await ranker.rank(request) }) {
+                // rank returns nil on timeout; either failure or timeout
+                // keeps the deterministic candidates.
+                if let reply = (try? runBlocking({ try await ranker.rank(request) })) ?? nil {
                     candidates = CandidateBlender.blend(
                         candidates,
                         orderedCandidates: reply.orderedCandidates,
