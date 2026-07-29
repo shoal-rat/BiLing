@@ -1,0 +1,18 @@
+{
+  "name": "百家姓 surname inventory (embedded character list)",
+  "kind": "factual inventory, embedded in code",
+  "version": "100 characters, the conventional most-common-surname set",
+  "retrieved": "n/a — authored into the script, not downloaded",
+  "url": "n/a",
+  "local_file": "Tools/DataPipeline/build_name_model.py (SURNAMES constant)",
+  "sha256": "f543f8ed89acb93fab26f3c2b35bb1b67b02d084343ec327b1a58bfe521b7947",
+  "sha256_note": "SHA-256 of the UTF-8 encoding of the 100-character SURNAMES string, so drift in the embedded list is detectable.",
+  "licence": {
+    "name": "none applicable",
+    "verified": false,
+    "verified_on": "2026-07-29",
+    "method": "Nothing to verify: that 王, 李, 张 and so on are Chinese surnames is public factual information, not a copyrightable dataset, and the list was not copied from any licensed database. Every WEIGHT in the name model (surname frequencies, given-name character distributions) is estimated from the Leipzig corpora listed in this directory, whose licences are recorded in their own manifests."
+  },
+  "used_for": "name model: surname membership only (which characters may open a personal name)",
+  "redistribution": "Yes, trivially — the character list is in the committed script and its derived weights ship in lexicon.sqlite3."
+}

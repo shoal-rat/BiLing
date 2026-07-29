@@ -1,0 +1,17 @@
+{
+  "name": "rime-pinyin-simp (pinyin_simp.dict.yaml)",
+  "kind": "lexicon source",
+  "version": "0.1 (dict file header); derived upstream from the Android Open Source Project Pinyin IME",
+  "retrieved": "2026-07-27",
+  "url": "https://github.com/rime/rime-pinyin-simp",
+  "local_file": "Resources/Lexicon/pinyin_simp.dict.yaml",
+  "sha256": "e341598343a0f0f2035bb1aafc34a7f3bb7887deeecb3f60796262aaa2983e6b",
+  "licence": {
+    "name": "Apache-2.0",
+    "verified": true,
+    "verified_on": "2026-07-29",
+    "method": "GitHub API https://api.github.com/repos/rime/rime-pinyin-simp/license returned SPDX id Apache-2.0 for the repository LICENSE file. Full licence text is preserved locally at Resources/Lexicon/APACHE-2.0-rime-pinyin-simp.txt, authorship at Resources/Lexicon/AUTHORS-rime-pinyin-simp.txt."
+  },
+  "used_for": "lexicon (compiled into Sources/BackboneEngine/Resources/lexicon.sqlite3 by scripts/build_dictionary.py; weight boost recorded in the lexicon metadata `sources` row)",
+  "redistribution": "Yes. The source dict file is committed and its entries ship compiled in lexicon.sqlite3; the Apache-2.0 licence and AUTHORS files are preserved alongside it, as the licence requires."
+}

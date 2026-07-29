@@ -1,0 +1,19 @@
+{
+  "name": "Leipzig Corpora Collection zho_news_2020_10K",
+  "kind": "text corpus",
+  "version": "Chinese news crawl 2020, 10K-sentence sample",
+  "retrieved": "2026-07-27",
+  "url": "https://downloads.wortschatz-leipzig.de/corpora/zho_news_2020_10K.tar.gz",
+  "local_file": "~/.cache/biling-corpus/zho_news_2020_10K-sentences.txt",
+  "sha256": "2508cfd9fdb35a07d21205705269ae27168c9a7aefb72caa0fc7976ab9cbd597",
+  "licence": {
+    "name": "CC BY (per Leipzig terms of usage for downloadable corpora)",
+    "verified": true,
+    "verified_on": "2026-07-29",
+    "terms_url": "https://wortschatz.uni-leipzig.de/en/usage",
+    "method": "The live terms page could not be fetched directly (anti-bot interstitial), so the Internet Archive snapshot 20260206070156 of that page was used. It states that the text corpora offered for download are made available under CC BY; the CC BY-NC clause on the same page applies to the web applications, not the downloads."
+  },
+  "used_for": "evaluation only: source of the derived hash-split dev/test corpora (scripts/build_eval_corpus.py). Its sentences are excluded exactly from n-gram training (scripts/build_bigrams.py --exclude), but it is a sample of the same news-2020 collection as two training files, so near-duplicate leakage is possible; the source-separated test set (zho-cn_web_2015_30K) exists to measure without that risk.",
+  "redistribution": "No. Fetched on demand; the derived TSVs (Tests/Corpus/derived-*.tsv) contain corpus text and are therefore gitignored, regenerable with the recorded seed.",
+  "citation": "D. Goldhahn, T. Eckart and U. Quasthoff: Building Large Monolingual Dictionaries at the Leipzig Corpora Collection. LREC 2012."
+}
