@@ -20,32 +20,47 @@ public struct ConfidenceGate: Sendable {
     public let featureMean: [Double]
     public let featureStd: [Double]
 
-    /// Route to the model when P(top-1 wrong) reaches this. Calibrated on
-    /// derived-dev (Docs/results/gate-calibration.txt); overridable for
-    /// calibration sweeps via BILING_GATE_THRESHOLD.
-    public static let invocationThreshold: Double = {
+    /// Route to the model when P(top-1 wrong) reaches the mode's threshold.
+    /// Swept separately (Docs/results/gate-calibration.txt): cold 0.35
+    /// matches the margin rule's accuracy at 66% of its invocations, while
+    /// context lists need 0.15 to hold the margin rule's contrast top-1 —
+    /// context promotion sharpens margins, so equal-probability lists sit at
+    /// different feature values in the two modes.
+    public static func invocationThreshold(hasContext: Bool) -> Double {
         if let raw = ProcessInfo.processInfo.environment["BILING_GATE_THRESHOLD"],
            let value = Double(raw), value > 0, value < 1 {
             return value
         }
-        return EngineConfig.shared.gateThreshold
-    }()
+        return hasContext
+            ? EngineConfig.shared.gateThresholdContext
+            : EngineConfig.shared.gateThreshold
+    }
 
     /// Feature lists longer than the training dump's truncation would shift
     /// the candidate-count feature off its calibrated scale.
     private static let listCap = 40
 
-    public static let shared: ConfidenceGate? = load()
+    /// Cold-start calibration: lists produced with no committed context.
+    public static let shared: ConfidenceGate? = load(
+        environmentKey: "BILING_GATE_PATH", fileName: "confidence-gate"
+    )
+    /// Separate calibration for lists shaped by committed context. Context
+    /// promotion sharpens deterministic margins, and judged by the cold
+    /// gate those lists look decided when they are not — measured 7 points
+    /// of contrast-corpus top-1 lost to wrong skips before the split.
+    public static let sharedContext: ConfidenceGate? = load(
+        environmentKey: "BILING_GATE_CONTEXT_PATH", fileName: "confidence-gate-context"
+    )
 
-    static func load() -> ConfidenceGate? {
+    static func load(environmentKey: String, fileName: String) -> ConfidenceGate? {
         // A/B escape hatch: force the margin fallback so calibration runs can
         // measure the learned gate against the rule it replaced.
         if ProcessInfo.processInfo.environment["BILING_GATE_DISABLE"] == "1" { return nil }
         let candidates: [URL?] = [
-            ProcessInfo.processInfo.environment["BILING_GATE_PATH"].map(URL.init(fileURLWithPath:)),
+            ProcessInfo.processInfo.environment[environmentKey].map(URL.init(fileURLWithPath:)),
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-                .appendingPathComponent("BiLing/confidence-gate.json"),
-            Bundle.module.url(forResource: "confidence-gate", withExtension: "json"),
+                .appendingPathComponent("BiLing/\(fileName).json"),
+            Bundle.module.url(forResource: fileName, withExtension: "json"),
         ]
         for url in candidates.compactMap({ $0 }) {
             if let gate = try? load(from: url) { return gate }
@@ -94,11 +109,12 @@ public struct ConfidenceGate: Sendable {
         return 1 / (1 + exp(-logit))
     }
 
-    /// The one call sites use. Falls back to the margin rule when no
-    /// calibrated gate is available.
-    public static func shouldInvokeModel(sortedScores: [Double]) -> Bool {
-        if let gate = shared {
-            return gate.probabilityWrong(sortedScores: sortedScores) >= invocationThreshold
+    /// The one call sites use. Picks the calibration matching how the list
+    /// was produced; falls back to the margin rule when neither loads.
+    public static func shouldInvokeModel(sortedScores: [Double], hasContext: Bool = false) -> Bool {
+        if let gate = hasContext ? (sharedContext ?? shared) : shared {
+            return gate.probabilityWrong(sortedScores: sortedScores)
+                >= invocationThreshold(hasContext: hasContext)
         }
         return ScoreModel.shouldInvokeModel(
             topScore: sortedScores.first ?? 0,

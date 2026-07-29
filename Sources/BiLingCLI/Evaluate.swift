@@ -129,7 +129,8 @@ enum Evaluate {
             let start = clock.now
             var candidates = engine.candidates(for: row.pinyin, context: context).candidates
             let gateOpen = ConfidenceGate.shouldInvokeModel(
-                sortedScores: candidates.map(\.score)
+                sortedScores: candidates.map(\.score),
+                hasContext: !context.isEmpty
             )
             if gateOpen { invocations += 1 } else { gatedOut += 1 }
             if let ranker, gateOpen {

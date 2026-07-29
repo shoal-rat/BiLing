@@ -19,6 +19,7 @@ import os
 /// programmatically — observability of one's own typing is opt-in only.
 public struct EngineConfig: Sendable {
     public let gateThreshold: Double
+    public let gateThresholdContext: Double
     public let characterFanIn: Int
     public let tolerantFanIn: Int
     public let modelTimeoutMilliseconds: Int
@@ -26,6 +27,7 @@ public struct EngineConfig: Sendable {
 
     public static let fallback = EngineConfig(
         gateThreshold: 0.35,
+        gateThresholdContext: 0.15,
         characterFanIn: 20,
         tolerantFanIn: 8,
         modelTimeoutMilliseconds: 2_500,
@@ -65,6 +67,11 @@ public struct EngineConfig: Sendable {
         return EngineConfig(
             gateThreshold: field(
                 "gate_threshold", default: fallback.gateThreshold, valid: { $0 > 0 && $0 < 1 }
+            ),
+            gateThresholdContext: field(
+                "gate_threshold_context",
+                default: fallback.gateThresholdContext,
+                valid: { $0 > 0 && $0 < 1 }
             ),
             characterFanIn: field(
                 "character_fan_in", default: fallback.characterFanIn, valid: { (1...64).contains($0) }

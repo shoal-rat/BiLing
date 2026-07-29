@@ -25,6 +25,7 @@ let package = Package(
             resources: [
                 .copy("Resources/lexicon.sqlite3"),
                 .copy("Resources/confidence-gate.json"),
+                .copy("Resources/confidence-gate-context.json"),
             ]
         ),
         .target(name: "IPCProtocol"),

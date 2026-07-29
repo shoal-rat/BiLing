@@ -31,3 +31,16 @@ Distilled 12->16->1 MLP ranker: REFUSED at every (alpha, T) grid point —
 best holdout gain +0.24pt = one list, inside 1.96 sigma. The 12-feature
 bottleneck cannot carry the teacher's text-level knowledge. Runtime ships
 dormant (DistilledRanker.swift); trainer refuses insignificant exports.
+
+== v2.1: dual-mode calibration (2026-07-29) ==
+Deterministic context promotion sharpens margins; judged by the cold gate,
+context lists look decided when they are not — contrast top-1 fell 79.1% ->
+72.1% from wrong skips. Fix: a second logistic fit on with-context teacher
+lists (4,435; holdout Brier 0.1451 vs 0.2267 base) and per-mode thresholds.
+
+Contrast corpus (43 items, full system, context):
+  margin rule:                   top1 79.1  invoked 79.1%
+  cold gate @ 0.35 (wrong fit):  top1 72.1  invoked 53.5%
+  context gate @ 0.15 (shipped): top1 79.1  invoked 74.4%
+Dev cold path unchanged: top1 37.5, invoked 66.0%.
+The with-context distilled MLP was refused again (+0.47pt < 1.96 sigma).
