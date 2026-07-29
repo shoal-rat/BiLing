@@ -36,6 +36,13 @@ public final class PinyinEngine: @unchecked Sendable {
     private let english = EnglishLexicon.shared
     private let toleranceGenerator: ToleranceGenerator
 
+    /// Words of each sentence path in the most recent result, keyed by the
+    /// candidate text shown to the user. `recordSelection` needs the word
+    /// sequence back to teach the store which words follow which; carrying it
+    /// on Candidate would push private decode detail across the XPC surface.
+    private var sentenceWordsByText: [String: [String]] = [:]
+    private let sentenceWordsLock = NSLock()
+
     /// How many characters each syllable may contribute to the lattice.
     /// Swept on the development set; see Docs/architecture-v2.md.
     private let characterFanIn = 20
@@ -83,6 +90,10 @@ public final class PinyinEngine: @unchecked Sendable {
         guard !key.isEmpty else {
             return EngineResult(input: normalized, mode: mode, candidates: [], generation: generation)
         }
+
+        sentenceWordsLock.lock()
+        sentenceWordsByText.removeAll(keepingCapacity: true)
+        sentenceWordsLock.unlock()
 
         var merged: [String: Candidate] = [:]
         func add(_ candidate: Candidate) {
@@ -306,6 +317,12 @@ public final class PinyinEngine: @unchecked Sendable {
             shown: shown.map(\.text),
             chosenIndex: index
         )
+        sentenceWordsLock.lock()
+        let words = sentenceWordsByText[candidate.text]
+        sentenceWordsLock.unlock()
+        if let words {
+            learningStore.recordCommit(words: words)
+        }
     }
 
     /// Sentence candidates split by how they read the keystrokes, so the
@@ -566,14 +583,27 @@ public final class PinyinEngine: @unchecked Sendable {
             }
         }
 
+        // One snapshot of the user's transition evidence per decode: the
+        // closure the store hands back is lock-free, so the search pays a
+        // dictionary lookup, not a mutex, per edge.
+        let lexiconTransition: (String, String) -> Double = { [dictionary] previous, next in
+            dictionary.transition(from: previous, to: next)
+        }
+        let transition: (String, String) -> Double
+        if let blend = learningStore.transitionModel() {
+            transition = { previous, next in
+                blend(previous, next, lexiconTransition(previous, next))
+            }
+        } else {
+            transition = lexiconTransition
+        }
+
         let paths = LatticeDecoder.nBest(
             edges: edges,
             inputLength: characters.count,
             limit: limit,
             logTotalWeight: logTotal,
-            transition: { [dictionary] previous, next in
-                dictionary.transition(from: previous, to: next)
-            }
+            transition: transition
         )
 
         // Rescore the finished list with third-order context. Search keeps a
@@ -587,9 +617,7 @@ public final class PinyinEngine: @unchecked Sendable {
                 words: path.words,
                 weights: path.weights,
                 logTotalWeight: logTotal,
-                bigram: { [dictionary] previous, next in
-                    dictionary.transition(from: previous, to: next)
-                },
+                bigram: transition,
                 trigram: { [dictionary] first, second, next in
                     dictionary.trigram(first, second, next)
                 }
@@ -601,6 +629,11 @@ public final class PinyinEngine: @unchecked Sendable {
                 consumed: key.count,
                 score: path.score + adjustment
             )
+            if path.words.count >= 2 {
+                sentenceWordsLock.lock()
+                sentenceWordsByText[candidate.text] = path.words
+                sentenceWordsLock.unlock()
+            }
             // A path with both kinds of deviation faces the stricter gate.
             if path.usedTypoRepair {
                 harvest.typoRepaired.append(candidate)
