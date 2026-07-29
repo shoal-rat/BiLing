@@ -96,11 +96,13 @@ private func makeEngine() throws -> PinyinEngine {
     // nothing before it — means no vote at all, so the lexicon order stands.
     #expect(ScoreModel.languageModelWeight(hasContext: false, candidateLength: 1) == 0)
     // Evidence accumulates with context and with candidate length, and the
-    // weight rises monotonically without ever reaching certainty.
+    // weight rises monotonically without ever reaching its swept ceiling
+    // (the ceiling itself is calibration, re-swept when score semantics
+    // change — the property here is the shape, not the constant).
     let cold = ScoreModel.languageModelWeight(hasContext: false, candidateLength: 4)
     let warm = ScoreModel.languageModelWeight(hasContext: true, candidateLength: 4)
     let longer = ScoreModel.languageModelWeight(hasContext: true, candidateLength: 9)
-    #expect(cold > 0 && cold < warm && warm < longer && longer < 0.55)
+    #expect(cold > 0 && cold < warm && warm < longer && longer < ScoreModel.languageModelScale)
 }
 
 @Test func theModelMayPromoteButNeverArbitrarilyDemote() {

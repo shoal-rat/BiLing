@@ -164,14 +164,30 @@ items both systems saw identically: BiLing 76.0% vs Apple 77.3%, 95% CI
 Apple ahead by 10.4. On the 43-item contrast corpus BiLing 79.1% vs 67.4%,
 CI touching zero at that n. Stated exactly that way, nothing stronger.
 
+**Modular engine protocols** (Phase 2). Whole-key candidate producers
+(learned, lexicon, abbreviation, name, Latin, literal) extracted behind
+`WholeKeyCandidateSource`, ordering-preserving and behavioural-identity
+gated: the derived-dev engine-only line is digit-for-digit unchanged and
+the golden suites passed unmodified throughout. The sentence lattice stays
+off the protocol deliberately — it produces multi-segment paths under
+harvest-class admission, and flattening that type would blur the rule that
+keeps tolerant admission honest.
+
 ## Held-out results at this commit
 
 | | top-1 | top-5 | coverage | MRR |
 |---|---|---|---|---|
 | Baseline, lexicon only | 37.5% | 48.7% | 58.9% | 0.428 |
-| **Now, lexicon only** | **37.8%** | **49.2%** | **60.0%** | **0.432** |
-| Baseline, full system | 44.2% | 52.5% | 58.9% | 0.477 |
-| **Now, full system** | **44.2%** | **53.2%** | **60.0%** | **0.480** |
+| **Now, lexicon only** | **37.8%** | **49.2%** | **59.9%** | **0.432** |
+| Baseline, full system (cold) | 44.2% | 52.5% | 58.9% | 0.477 |
+| **Now, full system, cold** | **43.6%** | **53.0%** | **59.9%** | **0.478** |
+| **Now, full system, with context** | **46.4%** | **54.1%** | **59.8%** | **0.499** |
+
+The cold full-system figure is 0.6 points under baseline while the model
+now runs on 62.5% of items instead of 100%/73.5% — and the baseline's extra
+0.6 was earned by the old bridge's subtly wrong scoring (first token
+skipped), which is not a trade we keep. With context — the regime the
+round was aimed at — the system sets its new best.
 
 Modest and honest: the headline gains of this round are capability (names,
 compounds, typo/fuzzy), energy (26% fewer model calls at equal accuracy),
@@ -194,9 +210,7 @@ of items instead of all of them.
 
 ## Not implemented (remains from the 19-phase plan)
 
-Modular engine protocols (2) — extraction of whole-key candidate producers
-behind a protocol is in review on a branch, behavioural-identity gated;
-learned decoder weights (5) and the distilled reranker (7) — both trainers
+Learned decoder weights (5) and the distilled reranker (7) — both trainers
 exist and both refuse to export because nothing beats fallback beyond noise
 (the refusal is the result; infrastructure ships dormant); energy
 instrumentation beyond signposts and the gate's measured invocation cuts
