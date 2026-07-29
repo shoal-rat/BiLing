@@ -461,6 +461,9 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         selectedInPage = 0
         stability.compositionEnded()
         documentContext = ""
+        // Holds a copy of client text; drop it as soon as the composition
+        // ends rather than carrying it until the next one begins.
+        activeContext = ""
         fetchedContextThisComposition = false
         panel.dismiss()
     }
