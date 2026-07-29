@@ -358,6 +358,21 @@ public enum ScoreModel {
         candidateLength: Int
     ) -> Double {
         let evidence = Double(max(0, candidateLength - 1)) + (hasContext ? 2 : 0)
-        return 0.55 * evidence / (evidence + 1)
+        return Self.languageModelScale * evidence / (evidence + 1)
     }
+
+    /// Ceiling of the model's vote. Tied to the bridge's score semantics:
+    /// the merged-tokenization fix made scores price the whole candidate
+    /// (the old path skipped the first token), which both shrank their
+    /// scale and made them more informative — the sweep moved from 0.55 to
+    /// a plateau at 1.2 (dev cold 37.5→39.0, contrast 79.1→83.7; the low
+    /// end of the plateau is shipped). BILING_LM_WEIGHT overrides for
+    /// calibration runs only.
+    static let languageModelScale: Double = {
+        if let raw = ProcessInfo.processInfo.environment["BILING_LM_WEIGHT"],
+           let value = Double(raw), value > 0, value < 2 {
+            return value
+        }
+        return 1.2
+    }()
 }

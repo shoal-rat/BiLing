@@ -50,15 +50,15 @@ but Apple is ahead. That number is printed here rather than buried because it is
 what decides the roadmap.
 
 **With committed context, the gap disappears.** Committed text now conditions
-the deterministic decoder directly (the last committed word substitutes for the
-sentence-start marker, promotion-only), with the model gate calibrated
-separately for context-shaped lists. On 150 held-out items where both systems
-saw the identical context: BiLing 76.0%, Apple Pinyin 77.3% — 95% CI
-[−7.3, +4.7], statistically indistinguishable. On a 43-item corpus built
-specifically for context disambiguation BiLing leads 79.1% to 67.4%, but at
-that n the interval touches zero, so no stronger claim is made. Cold start,
-Apple still leads, as the table above says. Method and commands:
-`Docs/results/apple-comparison-context.txt`.
+the deterministic decoder directly (the last committed word substitutes for
+the sentence-start marker, promotion-only), the model gate is calibrated
+separately for context-shaped lists, and the blend weight was re-swept for
+the bridge's corrected score semantics. On 150 held-out items where both
+systems saw the identical context: BiLing 77.3%, Apple Pinyin 77.3% — a tie,
+95% CI [−6.0, +6.7]. On the 43-item context-disambiguation corpus BiLing
+leads 83.7% to 67.4% — paired difference +16.3 points, 95% CI [+2.3, +30.2],
+which excludes zero. Cold start, Apple still leads, as the table above says.
+Method and commands: `Docs/results/apple-comparison-context.txt`.
 
 ![Accuracy after each change](Docs/results-progress.svg)
 
