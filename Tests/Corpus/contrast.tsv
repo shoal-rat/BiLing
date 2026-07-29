@@ -1,0 +1,71 @@
+# BiLing contrast corpus — measuring what CONTEXT is worth.
+# Columns: category <TAB> context <TAB> pinyin <TAB> expected
+#
+# Design. Every item shares its pinyin key with at least one sibling item whose
+# context selects a DIFFERENT expected text. With context stripped
+# (--no-context) the two are indistinguishable, so no system can get both
+# right; with context an ideal system can. The gap between the two runs is
+# therefore a direct measurement of the value of context handling, on
+# ambiguities a literate human resolves without thinking. Items were chosen
+# for being real disambiguations, not for being ones the engine happens to
+# pass; misses are information, not embarrassments.
+#
+# Groups:
+#   homophone — word pairs/triples with identical toneless pinyin whose
+#       meanings force the choice (权力/权利, 泄漏/泄露 …). 需要/须要 is the
+#       weakest pair — the distinction is prescriptive (须要 = 必须) and many
+#       writers use 需要 everywhere — but it is the classic style-guide case
+#       and is kept, flagged as such.
+#   particle — 的/得/地 and 在/再: highest-frequency homophones in the
+#       language; the preceding word class decides, and every IME must get
+#       these right to be usable.
+#   pronoun — 他/她/它 for key `ta`: the referent in the preceding clause
+#       decides gender/animacy. This is precisely what n-gram context and an
+#       LM can do and frequency alone cannot.
+#   mixed — the same Latin key read as an English word after English context,
+#       and as a pinyin syllable after Chinese context (me, sun, long): the
+#       bilingual case BiLing exists for.
+#
+homophone	滥用手中的	quanli	权力
+homophone	依法维护自己的	quanli	权利
+homophone	解决这个难题需要时间，更	xuyao	须要
+homophone	公司急切地	xuyao	需要
+homophone	厨房里发生煤气	xielou	泄漏
+homophone	公司机密不慎被	xielou	泄露
+homophone	法律规定具有担保性质、违约不退的是	dingjin	定金
+homophone	商家承诺随时可以退还的是	dingjin	订金
+homophone	他是一位经验丰富的	jiaoshi	教师
+homophone	学生们陆续走进	jiaoshi	教室
+homophone	医生全力挽救病人的	shengming	生命
+homophone	外交部就此事发表严正	shengming	声明
+homophone	她是这家分公司的	jingli	经理
+homophone	留学是一段难忘的	jingli	经历
+homophone	年轻人有旺盛的	jingli	精力
+homophone	警方正在调查事故的	yuanyin	原因
+homophone	语音学课上老师讲到	yuanyin	元音
+homophone	这项研究具有重要	yiyi	意义
+homophone	辩护律师当庭提出	yiyi	异议
+homophone	这支球队展现出强大的	shili	实力
+homophone	长时间玩手机会损害	shili	视力
+homophone	他背熟了所有数学	gongshi	公式
+homophone	拟录用名单正在网上	gongshi	公示
+homophone	故宫和天坛都位于	beijing	北京
+homophone	警方调查了嫌疑人的家庭	beijing	背景
+homophone	到达以后请及时与我	lianxi	联系
+homophone	老师布置了两页	lianxi	练习
+homophone	这项发明是集体智慧的	jiejing	结晶
+homophone	通往成功没有	jiejing	捷径
+particle	这是我	de	的
+particle	他跑	de	得
+particle	她慢慢	de	地
+particle	他现在人	zai	在
+particle	这件事我们改天	zai	再
+pronoun	我妹妹今年十岁，	ta	她
+pronoun	我哥哥今年二十岁，	ta	他
+pronoun	我家养了一只猫，	ta	它
+mixed	please tell	me	me
+mixed	你到底想干什	me	么
+mixed	the rising	sun	sun
+mixed	这位老先生姓	sun	孙
+mixed	the bridge is two kilometers	long	long
+mixed	他属	long	龙

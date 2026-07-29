@@ -1,0 +1,19 @@
+{
+  "name": "Leipzig Corpora Collection zho_news_2007-2009_1M",
+  "kind": "text corpus",
+  "version": "Chinese news crawl 2007-2009, 1M-sentence sample",
+  "retrieved": "2026-07-28",
+  "url": "https://downloads.wortschatz-leipzig.de/corpora/zho_news_2007-2009_1M.tar.gz",
+  "local_file": "~/.cache/biling-corpus/zho_news_2007-2009_1M-sentences.txt",
+  "sha256": "eaaaa88687c896e17759a906d6f88aacd00394ee1ec31fa5c92c59a818447f90",
+  "licence": {
+    "name": "CC BY (per Leipzig terms of usage for downloadable corpora)",
+    "verified": true,
+    "verified_on": "2026-07-29",
+    "terms_url": "https://wortschatz.uni-leipzig.de/en/usage",
+    "method": "The live terms page could not be fetched directly (anti-bot interstitial), so the Internet Archive snapshot 20260206070156 of that page was used. It states that the text corpora offered for download are made available under CC BY; the CC BY-NC clause on the same page applies to the web applications, not the downloads."
+  },
+  "used_for": "language model (bigram/trigram training pool) and name-model weight estimation; NOT used for evaluation",
+  "redistribution": "No. Fetched on demand into ~/.cache/biling-corpus/; the repository ships only aggregate n-gram statistics inside lexicon.sqlite3, never the text.",
+  "citation": "D. Goldhahn, T. Eckart and U. Quasthoff: Building Large Monolingual Dictionaries at the Leipzig Corpora Collection. LREC 2012."
+}

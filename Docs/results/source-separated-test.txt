@@ -1,0 +1,80 @@
+BiLing — source-separated test set (Phase 13), run once at 95e7b3c
+Machine: Apple M5, macOS 26.5. Engine binary: swift build -c release.
+
+Why this set exists
+-------------------
+The hash-split derived test (Docs/results/derived-test.txt) draws dev and
+test from zho_news_2020_10K. Its exact sentences are excluded from bigram
+training, but two training files (zho_news_2020_100K/300K) sample the SAME
+news-2020 collection, so near-duplicates of test items — the same wire story
+rewritten — can sit in the training pool. This set is derived instead from
+zho-cn_web_2015_30K: a collection, year, and genre that appear nowhere in
+the n-gram training pool {zho_news_2007-2009_1M, zho_news_2020_100K,
+zho_news_2020_300K, zho_wikipedia_2018_300K}.
+
+Separation check (exact sentence overlap of the 30,000 web-2015 sentences
+against each training file): 1M news 2007-2009: 0; 100K news 2020: 0;
+300K news 2020: 1; 300K wikipedia 2018: 0; (and 0 vs the old eval source).
+
+Commands (venv: ~/Library/Application Support/BiLing/venv)
+----------------------------------------------------------
+  python3 scripts/build_eval_corpus.py \
+      --source ~/.cache/biling-corpus/zho-cn_web_2015_30K-sentences.txt \
+      --split-by source-file --limit 800
+  # -> Tests/Corpus/derived-sourcesep-test.tsv: 3381 items
+  #    (abbrev 606, abbrev-ctx 420, abbrev-heavy 787, full 800, full-ctx 768)
+
+  .build/release/biling-cli --evaluate Tests/Corpus/derived-sourcesep-test.tsv --engine-only
+  .build/release/biling-cli --evaluate Tests/Corpus/derived-sourcesep-test.tsv
+
+=== lexicon only (--engine-only) ===
+full n=800  top1  16.0%  top5  24.2%  cover  30.1%  MRR 0.197  median    8.2 ms  p95   28.2 ms
+abbrev n=606  top1   7.1%  top5  14.4%  cover  20.0%  MRR 0.103  median   28.3 ms  p95   64.2 ms
+abbrev-heavy n=787  top1   4.8%  top5   8.4%  cover  13.1%  MRR 0.065  median   20.5 ms  p95   51.0 ms
+full-ctx n=768  top1  24.9%  top5  32.4%  cover  40.1%  MRR 0.283  median    3.9 ms  p95    9.2 ms
+abbrev-ctx n=420  top1  10.5%  top5  18.6%  cover  25.7%  MRR 0.141  median   12.6 ms  p95   27.5 ms
+OVERALL n=3381 top1  13.1%  top5  19.9%  cover  26.1%  MRR 0.162  median   11.8 ms  p95   47.0 ms
+model gate: invoked 2603 of 3381 items (77.0%)
+
+=== full system (gated model + context) ===
+full n=800  top1  21.6%  top5  26.1%  cover  30.1%  MRR 0.236  median   58.7 ms  p95  166.0 ms
+abbrev n=606  top1  12.5%  top5  16.2%  cover  20.0%  MRR 0.142  median   99.9 ms  p95  277.1 ms
+abbrev-heavy n=787  top1   6.9%  top5   9.4%  cover  13.1%  MRR 0.082  median   80.7 ms  p95  204.0 ms
+full-ctx n=768  top1  28.4%  top5  34.2%  cover  40.1%  MRR 0.309  median   39.1 ms  p95   93.1 ms
+abbrev-ctx n=420  top1  16.4%  top5  21.7%  cover  25.7%  MRR 0.188  median   55.6 ms  p95  131.0 ms
+OVERALL n=3381 top1  17.5%  top5  21.7%  cover  26.1%  MRR 0.194  median   61.5 ms  p95  194.8 ms
+model gate: invoked 2603 of 3381 items (77.0%)
+
+Comparison with the hash-split test (Docs/results/derived-test.txt)
+-------------------------------------------------------------------
+                        hash-split (news-2020)   source-separated (web-2015)
+engine-only  top1              37.8%                       13.1%
+full system  top1              44.2%                       17.5%
+coverage                       60.0%                       26.1%
+
+Reading these numbers honestly
+------------------------------
+1. The drop is large (-24.7 / -26.7 points top-1) but it is NOT a pure
+   leakage measurement. It conflates (a) losing near-duplicate leakage and
+   (b) a real domain shift: web-2015 is government budget prose, e-commerce
+   and forum text, far from the news register the n-grams were trained on.
+   Coverage falling 60.0% -> 26.1% shows most of the loss appears already at
+   candidate GENERATION, which leakage alone cannot explain.
+2. The delta the system carries over unchanged is informative: the model +
+   context still add +4.4 points here (13.1 -> 17.5) vs +6.4 on the
+   hash-split set — the reranker's contribution survives the shift.
+3. The web-2015 crawl contains some traditional-script sentences (the Han
+   regex does not distinguish scripts); items whose expected text is
+   traditional are legitimate misses for a simplified-Chinese IME and
+   depress the numbers slightly (e.g. expected 招標/結果 items in the miss
+   list).
+4. Both runs completed and printed full reports; the full-system process
+   then aborted INSIDE exit() with a known ggml Metal teardown assertion
+   (ggml-metal-device.m:622, llama.cpp shutdown-order issue). This happens
+   after all 3381 items were scored and reported, and does not affect the
+   numbers above.
+
+The honest headline: on text the language model has genuinely never seen a
+relative of, BiLing's top-1 is 17.5%, not 44.2%. The hash-split number
+remains useful for tracking regressions in-domain; claims about
+generalisation should cite this file.

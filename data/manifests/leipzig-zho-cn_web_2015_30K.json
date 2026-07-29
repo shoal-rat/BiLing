@@ -1,0 +1,19 @@
+{
+  "name": "Leipzig Corpora Collection zho-cn_web_2015_30K",
+  "kind": "text corpus",
+  "version": "Simplified-Chinese web crawl 2015, 30K-sentence sample",
+  "retrieved": "2026-07-29",
+  "url": "https://downloads.wortschatz-leipzig.de/corpora/zho-cn_web_2015_30K.tar.gz",
+  "local_file": "~/.cache/biling-corpus/zho-cn_web_2015_30K-sentences.txt",
+  "sha256": "a011827ad997e56a724debee1be2fe21257691ec47a14fd5079ffb73fb1daf21",
+  "licence": {
+    "name": "CC BY (per Leipzig terms of usage for downloadable corpora)",
+    "verified": true,
+    "verified_on": "2026-07-29",
+    "terms_url": "https://wortschatz.uni-leipzig.de/en/usage",
+    "method": "The live terms page could not be fetched directly (anti-bot interstitial), so the Internet Archive snapshot 20260206070156 of that page was used. It states that the text corpora offered for download are made available under CC BY; the CC BY-NC clause on the same page applies to the web applications, not the downloads."
+  },
+  "used_for": "evaluation only: source-separated test set (scripts/build_eval_corpus.py --split-by source-file). Chosen because it shares no collection, year, or genre with any n-gram training file; it must NEVER be added to the training pool, or the source-separated numbers become meaningless.",
+  "redistribution": "No. Fetched on demand; the derived TSV (Tests/Corpus/derived-sourcesep-test.tsv) contains corpus text and is therefore gitignored, regenerable with the recorded seed.",
+  "citation": "D. Goldhahn, T. Eckart and U. Quasthoff: Building Large Monolingual Dictionaries at the Leipzig Corpora Collection. LREC 2012."
+}

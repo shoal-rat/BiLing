@@ -1,0 +1,18 @@
+{
+  "name": "rime-wanxiang jichu.dict.yaml (万象拼音 base vocabulary)",
+  "kind": "lexicon source",
+  "version": "upstream commit 1daf1e973001271331517fef3fb86eceb7e69afd, dict header version \"LTS\"",
+  "retrieved": "2026-07-27",
+  "url": "https://github.com/amzxyz/rime_wanxiang",
+  "url_note": "The upstream repository has since been renamed to amzxyz/rime-wanxiang (GitHub repository id 838849799); the old URL redirects.",
+  "local_file": "Resources/Lexicon/wanxiang-jichu.dict.yaml",
+  "sha256": "ef6e95d006f6e6170f625661d399dc47a565dc590d6708091236b4c75dd29748",
+  "licence": {
+    "name": "CC-BY-4.0",
+    "verified": true,
+    "verified_on": "2026-07-29",
+    "method": "GitHub API https://api.github.com/repositories/838849799/license returned SPDX id CC-BY-4.0 for the repository LICENSE file (branch `wanxiang`). Full licence text is preserved locally at Resources/Lexicon/CC-BY-4.0-rime-wanxiang.txt; attribution and local transformations are described in Resources/Lexicon/WANXIANG-SOURCE.md."
+  },
+  "used_for": "lexicon (compiled into Sources/BackboneEngine/Resources/lexicon.sqlite3 by scripts/build_dictionary.py; weight boost recorded in the lexicon metadata `sources` row)",
+  "redistribution": "Yes. The normalised dict file is committed and its entries ship compiled in lexicon.sqlite3, with attribution and the full CC-BY-4.0 text preserved, as the licence requires."
+}

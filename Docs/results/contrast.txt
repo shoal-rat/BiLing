@@ -1,0 +1,73 @@
+BiLing — contrast corpus (Phase 16), run once at 0ebc159
+Corpus: Tests/Corpus/contrast.tsv — 43 items in sibling groups sharing one
+pinyin key, where only the context column decides the expected text. With
+context stripped no system can get both siblings right, so the with/without
+gap directly measures what context handling is worth. Machine: Apple M5,
+macOS 26.5, Qwen3-0.6B-Base Q4_K_M.
+
+Commands
+--------
+  .build/release/biling-cli --evaluate Tests/Corpus/contrast.tsv --engine-only
+  .build/release/biling-cli --evaluate Tests/Corpus/contrast.tsv --engine-only --no-context
+  .build/release/biling-cli --evaluate Tests/Corpus/contrast.tsv
+  .build/release/biling-cli --evaluate Tests/Corpus/contrast.tsv --no-context
+
+=== engine-only, WITH context ===
+homophone n=29   top1  41.4%  top5  86.2%  cover 100.0%  MRR 0.614  median    1.2 ms  p95    3.3 ms
+particle n=5    top1  40.0%  top5 100.0%  cover 100.0%  MRR 0.667  median    0.2 ms  p95    1.0 ms
+pronoun n=3    top1  33.3%  top5 100.0%  cover 100.0%  MRR 0.611  median    0.2 ms  p95    1.2 ms
+mixed n=6    top1  50.0%  top5  83.3%  cover 100.0%  MRR 0.651  median    0.5 ms  p95    1.4 ms
+OVERALL n=43   top1  41.9%  top5  88.4%  cover 100.0%  MRR 0.625  median    1.0 ms  p95    2.9 ms
+
+=== engine-only, --no-context ===
+identical ranks item for item (only latency differs):
+OVERALL n=43   top1  41.9%  top5  88.4%  cover 100.0%  MRR 0.625  median    0.9 ms  p95    1.5 ms
+
+=== full system, WITH context ===
+homophone n=29   top1  86.2%  top5 100.0%  cover 100.0%  MRR 0.911  median   38.2 ms  p95   59.3 ms
+particle n=5    top1  40.0%  top5 100.0%  cover 100.0%  MRR 0.667  median    1.0 ms  p95   22.0 ms
+pronoun n=3    top1  66.7%  top5 100.0%  cover 100.0%  MRR 0.778  median   24.5 ms  p95   24.8 ms
+mixed n=6    top1 100.0%  top5 100.0%  cover 100.0%  MRR 1.000  median   22.3 ms  p95   36.9 ms
+OVERALL n=43   top1  81.4%  top5 100.0%  cover 100.0%  MRR 0.886  median   36.7 ms  p95   56.1 ms
+model gate: invoked 40 of 43 items (93.0%)
+
+=== full system, --no-context ===
+homophone n=29   top1  44.8%  top5  93.1%  cover 100.0%  MRR 0.641  median   26.8 ms  p95   39.1 ms
+particle n=5    top1  40.0%  top5 100.0%  cover 100.0%  MRR 0.667  median    0.2 ms  p95   12.1 ms
+pronoun n=3    top1  33.3%  top5 100.0%  cover 100.0%  MRR 0.611  median   13.8 ms  p95   14.8 ms
+mixed n=6    top1  33.3%  top5  83.3%  cover 100.0%  MRR 0.567  median   12.7 ms  p95   26.7 ms
+OVERALL n=43   top1  41.9%  top5  93.0%  cover 100.0%  MRR 0.632  median   25.9 ms  p95   32.5 ms
+model gate: invoked 40 of 43 items (93.0%)
+
+The measured value of context
+-----------------------------
+                       with context    no context     delta
+full system  top1          81.4%          41.9%      +39.5 points
+engine-only  top1          41.9%          41.9%       +0.0 points
+
+Findings
+--------
+1. Context is worth +39.5 top-1 points on ambiguities that context alone can
+   resolve — and ALL of it comes from the Qwen reranker. The deterministic
+   engine's ranking is bit-identical with and without context: reading the
+   code confirms that `PinyinEngine.candidates(for:context:)` accepts the
+   context argument and never uses it. The bigram/trigram tables condition
+   only on words INSIDE the composition, never on the committed text before
+   the caret. That is the single clearest improvement opportunity this
+   corpus exposes: seeding the lattice's sentence-start state from the last
+   committed word(s) would let the 0-ms layer capture some of what currently
+   costs a 25-40 ms model call.
+2. Without context the full system equals engine-only overall (41.9%) —
+   the model has no signal to add when the item is genuinely ambiguous, as
+   designed. On mixed items it is actively worse without context (33.3% vs
+   50.0%): stripped of the English left context, the reranker demotes
+   English readings the frequency layer had right.
+3. Remaining misses WITH full context (8): the prescriptive homophone pairs
+   权力(got 权利), 须要(got 需要), 订金(got 定金), 元音(got 原因) — and every
+   particle/pronoun grammar case: 得/地 (got 的), 再 (got 在), 它 (got 他).
+   The 0.6B model resolves topical homophones (教师/教室, 泄漏/泄露,
+   生命/声明 all correct) but not grammatical function words, where the
+   signal is syntactic rather than topical.
+4. Both full-system processes abort inside exit() with the known ggml Metal
+   teardown assertion (ggml-metal-device.m:622) AFTER printing the complete
+   report; the numbers are unaffected.
