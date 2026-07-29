@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="620" viewBox="0 0 1240 620" role="img" aria-labelledby="title description">
+  <title id="title">Paired against Apple Pinyin: behind cold, level with context, ahead on disambiguation</title>
+  <desc id="description">Three paired tests. Cold, 260 items: Apple 60.8%, BiLing 50.4%. With context, 150 general items: both 77.3%. 43 disambiguation items: Apple 67.4%, BiLing 83.7%, paired difference +16.3 points, 95% CI +2.3 to +30.2, excluding zero.</desc>
+  <style>
+    .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .ink { fill: #2A3038; } .muted { fill: #6E6F66; } .verm { fill: #C74A34; } .indigo { fill: #41628A; }
+  </style>
+  <rect width="1240" height="620" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1239" height="619" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="58" class="sans ink" font-size="24" font-weight="700">Context changes what the comparison even is</text>
+  <text x="60" y="86" class="sans muted" font-size="14">Item-by-item pairing against the macOS system IME: identical keystrokes, identical committed context on both sides. Bootstrap B=10000, fixed seed.</text>
+
+  <!-- ===== panel 1: cold ===== -->
+  <g>
+    <rect x="60" y="118" width="346" height="380" rx="14" fill="#FDFAF2" stroke="#DCD5C4"/>
+    <text x="83" y="152" class="sans ink" font-size="16" font-weight="700">Cold start</text>
+    <text x="83" y="174" class="sans muted" font-size="12">260 derived items, no context for either side</text>
+
+    <!-- bars: 3.2 px per point, baseline y=430 -->
+    <rect x="120" y="235.4" width="92" height="194.6" rx="4" fill="#8FA5B8"/>
+    <text x="166" y="226" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">60.8%</text>
+    <text x="166" y="452" text-anchor="middle" class="sans muted" font-size="13">Apple Pinyin</text>
+
+    <rect x="252" y="268.7" width="92" height="161.3" rx="4" fill="#C74A34" opacity="0.55"/>
+    <text x="298" y="259" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">50.4%</text>
+    <text x="298" y="452" text-anchor="middle" class="sans muted" font-size="13">BiLing</text>
+
+    <text x="83" y="484" class="sans ink" font-size="13" font-weight="600">Apple leads by 10.4 points.</text>
+  </g>
+
+  <!-- ===== panel 2: context, general ===== -->
+  <g>
+    <rect x="446" y="118" width="346" height="380" rx="14" fill="#FDFAF2" stroke="#DCD5C4"/>
+    <text x="469" y="152" class="sans ink" font-size="16" font-weight="700">With context · general text</text>
+    <text x="469" y="174" class="sans muted" font-size="12">150 held-out items, byte-identical context</text>
+
+    <rect x="506" y="182.6" width="92" height="247.4" rx="4" fill="#8FA5B8"/>
+    <text x="552" y="173" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">77.3%</text>
+    <text x="552" y="452" text-anchor="middle" class="sans muted" font-size="13">Apple Pinyin</text>
+
+    <rect x="638" y="182.6" width="92" height="247.4" rx="4" fill="#C74A34"/>
+    <text x="684" y="173" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">77.3%</text>
+    <text x="684" y="452" text-anchor="middle" class="sans muted" font-size="13">BiLing</text>
+
+    <text x="469" y="484" class="sans ink" font-size="13" font-weight="600">A tie. 95% CI [−6.0, +6.7].</text>
+  </g>
+
+  <!-- ===== panel 3: context, disambiguation ===== -->
+  <g>
+    <rect x="832" y="118" width="346" height="380" rx="14" fill="#FDFAF2" stroke="#C74A34" stroke-width="2"/>
+    <text x="855" y="152" class="sans ink" font-size="16" font-weight="700">With context · disambiguation</text>
+    <text x="855" y="174" class="sans muted" font-size="12">43 contrast items: same pinyin, context decides the answer</text>
+
+    <rect x="892" y="214.3" width="92" height="215.7" rx="4" fill="#8FA5B8"/>
+    <text x="938" y="205" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">67.4%</text>
+    <text x="938" y="452" text-anchor="middle" class="sans muted" font-size="13">Apple Pinyin</text>
+
+    <rect x="1024" y="162.2" width="92" height="267.8" rx="4" fill="#C74A34"/>
+    <text x="1070" y="153" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">83.7%</text>
+    <text x="1070" y="452" text-anchor="middle" class="sans muted" font-size="13">BiLing</text>
+
+    <text x="855" y="484" class="sans verm" font-size="13" font-weight="700">+16.3 points, 95% CI [+2.3, +30.2] — excludes zero.</text>
+  </g>
+
+  <text x="60" y="540" class="sans muted" font-size="13">
+    The cold gap stays honestly on the left — it did not vanish, it was routed around: once you are mid-sentence, ranking conditions on what you wrote instead of guessing.
+  </text>
+  <text x="60" y="564" class="sans muted" font-size="13">
+    Reproduce: <tspan class="mono">biling-cli --evaluate … --per-item</tspan> ＋ <tspan class="mono">apple_baseline.swift … --context</tspan> ＋ <tspan class="mono">paired_bootstrap.py</tspan>（Docs/results/apple-comparison-context.txt）
+  </text>
+</svg>

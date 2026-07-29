@@ -44,7 +44,7 @@
     <text x="568" y="400" class="muted" font-size="13">Reads the text before the caret</text>
 
     <rect x="786" y="356" width="222" height="56" rx="12" fill="#FDFAF2" stroke="#DCD5C4"/>
-    <text x="806" y="380" class="verm" font-size="15" font-weight="600">44.2% top-1</text>
-    <text x="806" y="400" class="muted" font-size="13">measured, not cherry-picked</text>
+    <text x="806" y="380" class="verm" font-size="15" font-weight="600">46.1% top-1</text>
+    <text x="806" y="400" class="muted" font-size="13">with context, held-out test</text>
   </g>
 </svg>

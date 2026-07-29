@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1240" height="560" viewBox="0 0 1240 560" role="img" aria-labelledby="title description">
   <title id="title">准确率随每次改动的变化，以及与系统输入法的差距</title>
-  <desc id="description">在推导语料上，top-1 准确率从 22.9% 提升到 44.2%；与 macOS 自带拼音在同一批 260 条上的差距从 18.5 个百分点缩小到 10.4 个百分点。</desc>
+  <desc id="description">在推导语料上，top-1 准确率从 22.9% 提升到冷启动 43.2%、带前文 46.1%；冷启动与 macOS 自带拼音差 10.4 个百分点，带前文在配对测试上打平。</desc>
   <style>
     .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
     .mono { font-family: "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
@@ -52,13 +52,13 @@
     <text x="962" y="381" class="mono ink" font-size="12" font-weight="600">38.9%</text>
   </g>
 
-  <text x="60" y="452" class="sans muted" font-size="13">留出 test 集（全程未参与调参）：仅词典 37.5%，完整系统 <tspan class="verm" font-weight="600">44.2%</tspan>，top-5 52.5%，覆盖率 58.9%。</text>
+  <text x="60" y="452" class="sans muted" font-size="13">留出 test 集（全程未参与调参）：仅词典 37.8%，完整系统冷启动 43.2%，<tspan class="verm" font-weight="600">带前文 46.1%</tspan>（模型仅在 62–68% 的按键上运行）。</text>
 
   <!-- Apple gap -->
   <line x1="60" y1="480" x2="1180" y2="480" stroke="#DCD5C4"/>
   <text x="60" y="510" class="sans ink" font-size="15" font-weight="600">与 macOS 自带拼音的差距（同一批 260 条，双方均无前文）</text>
   <text x="60" y="534" class="sans muted" font-size="13">
-    起始 <tspan class="mono">42.3%</tspan> 对 <tspan class="mono">60.8%</tspan>（差 18.5）　→　现在 <tspan class="mono verm" font-weight="600">50.4%</tspan> 对 <tspan class="mono">60.8%</tspan>（差 <tspan class="verm" font-weight="600">10.4</tspan>）。
-    全拼差 6.0，重度缩写已持平，差距集中在中度缩写输入。
+    冷启动：起始差 18.5 分 → 现在 <tspan class="mono verm" font-weight="600">50.4%</tspan> 对 <tspan class="mono">60.8%</tspan>（差 10.4）。
+    <tspan font-weight="600" class="ink">带前文：150 条留出集 77.3% 对 77.3% 打平；43 条前文歧义对照集领先 16.3 分（95% CI 不含零）。</tspan>
   </text>
 </svg>

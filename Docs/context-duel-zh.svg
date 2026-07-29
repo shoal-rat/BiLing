@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="620" viewBox="0 0 1240 620" role="img" aria-labelledby="title description">
+  <title id="title">与 Apple 拼音的配对对比：冷启动落后，带前文打平并在歧义消解上领先</title>
+  <desc id="description">三组配对测试。冷启动 260 条：Apple 60.8%，笔灵 50.4%。带前文的 150 条一般文本：双方都是 77.3%。43 条专测前文歧义：Apple 67.4%，笔灵 83.7%，配对差 +16.3 分，95% 置信区间 +2.3 到 +30.2，不含零。</desc>
+  <style>
+    .sans { font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif; }
+    .mono { font-family: "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+    .ink { fill: #2A3038; } .muted { fill: #6E6F66; } .verm { fill: #C74A34; } .indigo { fill: #41628A; }
+  </style>
+  <rect width="1240" height="620" fill="#F7F3E9"/>
+  <rect x="0.5" y="0.5" width="1239" height="619" fill="none" stroke="#DCD5C4"/>
+
+  <text x="60" y="58" class="sans ink" font-size="24" font-weight="700">前文改变了和谁比、比什么</text>
+  <text x="60" y="86" class="sans muted" font-size="14">与 macOS 自带拼音逐条配对：同一批按键，两边看到完全相同的已提交前文。自举 B=10000，随机种子固定。</text>
+
+  <!-- ===== panel 1: cold ===== -->
+  <g>
+    <rect x="60" y="118" width="346" height="380" rx="14" fill="#FDFAF2" stroke="#DCD5C4"/>
+    <text x="83" y="152" class="sans ink" font-size="16" font-weight="700">冷启动</text>
+    <text x="83" y="174" class="sans muted" font-size="12">260 条推导语料，双方均无前文</text>
+
+    <!-- bars: 3.2 px per point, baseline y=430 -->
+    <rect x="120" y="235.4" width="92" height="194.6" rx="4" fill="#8FA5B8"/>
+    <text x="166" y="226" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">60.8%</text>
+    <text x="166" y="452" text-anchor="middle" class="sans muted" font-size="13">Apple 拼音</text>
+
+    <rect x="252" y="268.7" width="92" height="161.3" rx="4" fill="#C74A34" opacity="0.55"/>
+    <text x="298" y="259" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">50.4%</text>
+    <text x="298" y="452" text-anchor="middle" class="sans muted" font-size="13">笔灵</text>
+
+    <text x="83" y="484" class="sans ink" font-size="13" font-weight="600">Apple 领先 10.4 分。</text>
+  </g>
+
+  <!-- ===== panel 2: context, general ===== -->
+  <g>
+    <rect x="446" y="118" width="346" height="380" rx="14" fill="#FDFAF2" stroke="#DCD5C4"/>
+    <text x="469" y="152" class="sans ink" font-size="16" font-weight="700">带前文 · 一般文本</text>
+    <text x="469" y="174" class="sans muted" font-size="12">150 条留出集，前文逐字相同</text>
+
+    <rect x="506" y="182.6" width="92" height="247.4" rx="4" fill="#8FA5B8"/>
+    <text x="552" y="173" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">77.3%</text>
+    <text x="552" y="452" text-anchor="middle" class="sans muted" font-size="13">Apple 拼音</text>
+
+    <rect x="638" y="182.6" width="92" height="247.4" rx="4" fill="#C74A34"/>
+    <text x="684" y="173" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">77.3%</text>
+    <text x="684" y="452" text-anchor="middle" class="sans muted" font-size="13">笔灵</text>
+
+    <text x="469" y="484" class="sans ink" font-size="13" font-weight="600">打平。95% CI [−6.0, +6.7]。</text>
+  </g>
+
+  <!-- ===== panel 3: context, disambiguation ===== -->
+  <g>
+    <rect x="832" y="118" width="346" height="380" rx="14" fill="#FDFAF2" stroke="#C74A34" stroke-width="2"/>
+    <text x="855" y="152" class="sans ink" font-size="16" font-weight="700">带前文 · 前文歧义消解</text>
+    <text x="855" y="174" class="sans muted" font-size="12">43 条对照集：同一串拼音，前文决定答案</text>
+
+    <rect x="892" y="214.3" width="92" height="215.7" rx="4" fill="#8FA5B8"/>
+    <text x="938" y="205" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">67.4%</text>
+    <text x="938" y="452" text-anchor="middle" class="sans muted" font-size="13">Apple 拼音</text>
+
+    <rect x="1024" y="162.2" width="92" height="267.8" rx="4" fill="#C74A34"/>
+    <text x="1070" y="153" text-anchor="middle" class="mono ink" font-size="15" font-weight="600">83.7%</text>
+    <text x="1070" y="452" text-anchor="middle" class="sans muted" font-size="13">笔灵</text>
+
+    <text x="855" y="484" class="sans verm" font-size="13" font-weight="700">领先 16.3 分，95% CI [+2.3, +30.2]，不含零。</text>
+  </g>
+
+  <text x="60" y="540" class="sans muted" font-size="13">
+    冷启动的差距如实保留在左侧——它没有消失，是被前文绕开了：一旦开始接着写，排序条件从"猜"变成"读"。
+  </text>
+  <text x="60" y="564" class="sans muted" font-size="13">
+    复现：<tspan class="mono">biling-cli --evaluate … --per-item</tspan> ＋ <tspan class="mono">apple_baseline.swift … --context</tspan> ＋ <tspan class="mono">paired_bootstrap.py</tspan>（Docs/results/apple-comparison-context.txt）
+  </text>
+</svg>
