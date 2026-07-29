@@ -1,3 +1,18 @@
+# CI without Git LFS.
+#
+# The real lexicon (Sources/BackboneEngine/Resources/lexicon.sqlite3, 168+ MB)
+# and the Qwen model are LFS objects the runner never downloads: checkout runs
+# with `lfs: false`, which leaves small ASCII pointer files in their place.
+# Two things make that safe:
+#
+#   * BILING_LEXICON_PATH redirects DictTrie.bundled() to the checked-in
+#     fixture (Tests/Fixtures/fixture-lexicon.sqlite3, a plain git blob
+#     exempted from LFS in .gitattributes), so no code path opens the pointer
+#     file as SQLite.
+#   * Suites recorded against the full lexicon detect a pointer file or a
+#     fixture-sized database as "real lexicon absent" and skip themselves
+#     (Tests/BackboneEngineTests/TestLexicon.swift); the fixture suite and all
+#     lexicon-independent suites still run.
 name: CI
 
 on:
@@ -11,15 +26,20 @@ concurrency:
 
 jobs:
   test:
+    # macOS 26 image: the package's platform requirement is .macOS("26.0") and
+    # swift-tools-version 6.2 needs the Xcode 26 toolchain.
     runs-on: macos-26
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
-      - name: Check out source without downloading the model
+      - name: Check out source without downloading LFS objects
         uses: actions/checkout@v6
         with:
           lfs: false
 
       - name: Install native build dependencies
+        # CLlamaBridge compiles and links against the Homebrew llama.cpp/ggml
+        # install (hardcoded /opt/homebrew paths in Package.swift), and
+        # SwiftPM builds every target in the package during build and test.
         run: brew install llama.cpp ggml libomp
 
       - name: Validate metadata and scripts
@@ -28,6 +48,16 @@ jobs:
           plutil -lint Resources/LaunchAgents/*.plist.in
           zsh -n scripts/install.sh scripts/install_online.sh scripts/install_prebuilt.sh
           zsh -n scripts/package_online_release.sh scripts/package_release.sh scripts/uninstall.sh
+          bash -n scripts/test_installer_rollback.sh
 
-      - name: Run Swift tests
-        run: swift test
+      - name: Confirm the fixture lexicon is a real database, not an LFS pointer
+        run: |
+          head -c 16 Tests/Fixtures/fixture-lexicon.sqlite3 | grep -q "SQLite format 3"
+          sqlite3 Tests/Fixtures/fixture-lexicon.sqlite3 \
+            "SELECT value FROM metadata WHERE name = 'format_version';" | grep -qx 3
+
+      - name: Build
+        run: swift build
+
+      - name: Run Swift tests against the fixture lexicon
+        run: BILING_LEXICON_PATH="$PWD/Tests/Fixtures/fixture-lexicon.sqlite3" swift test
