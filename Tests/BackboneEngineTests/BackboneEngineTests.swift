@@ -5,38 +5,38 @@ private func makeEngine() throws -> PinyinEngine {
     try PinyinEngine(dictionary: .bundled(), learningStore: MemoryLearningStore())
 }
 
-@Test func commonWordsAreReachable() throws {
+@Test(.requiresRealLexicon) func commonWordsAreReachable() throws {
     let engine = try makeEngine()
     let result = engine.candidates(for: "nihao")
     #expect(result.candidates.contains(where: { $0.text == "你好" }))
 }
 
-@Test func heteronymWordIsReachable() throws {
+@Test(.requiresRealLexicon) func heteronymWordIsReachable() throws {
     let engine = try makeEngine()
     let result = engine.candidates(for: "yinhang")
     #expect(result.candidates.contains(where: { $0.text == "银行" }))
 }
 
-@Test func bundledLexiconIsUsefulBeforeLearning() throws {
+@Test(.requiresRealLexicon) func bundledLexiconIsUsefulBeforeLearning() throws {
     let engine = try makeEngine()
     #expect(engine.dictionary.entryCount >= 1_400_000)
     let result = engine.candidates(for: "jilindaxue")
     #expect(result.candidates.first?.text == "吉林大学")
 }
 
-@Test func toneMarkedUmlautPinyinIsNormalized() throws {
+@Test(.requiresRealLexicon) func toneMarkedUmlautPinyinIsNormalized() throws {
     let engine = try makeEngine()
     let result = engine.candidates(for: "lvse")
     #expect(result.candidates.contains(where: { $0.text == "绿色" }))
 }
 
-@Test func literalEscapeIsAlwaysReachable() throws {
+@Test(.requiresRealLexicon) func literalEscapeIsAlwaysReachable() throws {
     let engine = try makeEngine()
     let result = engine.candidates(for: "vscode")
     #expect(result.candidates.contains(where: { $0.text == "vscode" && $0.source == .literal }))
 }
 
-@Test func learningChangesImmediateScore() throws {
+@Test(.requiresRealLexicon) func learningChangesImmediateScore() throws {
     let store = MemoryLearningStore()
     let engine = try PinyinEngine(dictionary: .bundled(), learningStore: store)
     let before = engine.candidates(for: "xiexie")
@@ -54,7 +54,7 @@ private func makeEngine() throws -> PinyinEngine {
     #expect(PrivacyGuard.shouldLearn(text: "谢谢", source: .system, bundleIdentifier: "com.apple.TextEdit"))
 }
 
-@Test func sentenceComposerRanksTheReadmeExampleFirst() throws {
+@Test(.requiresRealLexicon) func sentenceComposerRanksTheReadmeExampleFirst() throws {
     let engine = try makeEngine()
     let result = engine.candidates(for: "jilindaxuelajixuexiao")
     #expect(result.candidates.first?.text == "吉林大学垃圾学校")
@@ -68,7 +68,7 @@ private func makeEngine() throws -> PinyinEngine {
     #expect(lexicon.completions(for: "x", limit: 3).isEmpty)
 }
 
-@Test func curatedDisplayFormsSurface() throws {
+@Test(.requiresRealLexicon) func curatedDisplayFormsSurface() throws {
     let engine = try makeEngine()
     #expect(engine.candidates(for: "claude").candidates.first?.text == "Claude")
     #expect(engine.candidates(for: "xswl").candidates.first?.text == "xswl")
@@ -78,12 +78,12 @@ private func makeEngine() throws -> PinyinEngine {
     #expect(ai.prefix(6).contains(where: { $0.text == "AI" }))
 }
 
-@Test func singleLetterBeamComponentsDoNotBeatRealWords() throws {
+@Test(.requiresRealLexicon) func singleLetterBeamComponentsDoNotBeatRealWords() throws {
     let engine = try makeEngine()
     #expect(engine.candidates(for: "fan").candidates.first?.text == "饭")
 }
 
-@Test func abbreviationTypingWorks() throws {
+@Test(.requiresRealLexicon) func abbreviationTypingWorks() throws {
     let engine = try makeEngine()
     #expect(engine.candidates(for: "jldx").candidates.first?.text == "吉林大学")
     #expect(engine.candidates(for: "zgrm").candidates.first?.text == "中国人民")

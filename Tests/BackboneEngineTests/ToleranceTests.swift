@@ -10,7 +10,7 @@ import Testing
 /// an opt-in claim about how the user spells. On, a candidate that deviates
 /// from the typed letters may only *add* to what exact reading offers: it
 /// must never steal the top spot from a word that owns the key exactly.
-@Suite("Fuzzy pinyin and typo tolerance")
+@Suite("Fuzzy pinyin and typo tolerance", .requiresRealLexicon)
 struct ToleranceTests {
     private func engine(_ tolerance: ToleranceOptions) throws -> PinyinEngine {
         EnglishLexicon.shared.warm()
