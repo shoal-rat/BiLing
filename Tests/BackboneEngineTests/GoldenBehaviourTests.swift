@@ -10,7 +10,7 @@ import Testing
 /// changes any of them is changing user-visible behaviour and has to say so
 /// deliberately. They cover the cases most likely to regress silently while
 /// candidate generation is rebuilt underneath.
-@Suite("Golden behaviour (pre-v2 baseline)")
+@Suite("Golden behaviour (pre-v2 baseline)", .requiresRealLexicon)
 struct GoldenBehaviourTests {
     private func engine() throws -> PinyinEngine {
         // Load the Latin word list synchronously so the assertions do not race
