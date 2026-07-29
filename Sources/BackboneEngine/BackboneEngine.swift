@@ -93,6 +93,8 @@ public final class PinyinEngine: @unchecked Sendable {
         self.sources = [
             LearnedCandidateSource(learningStore: learningStore, dictionary: dictionary),
             LexiconWholeKeySource(dictionary: dictionary),
+            AbbreviationSource(dictionary: dictionary),
+            NameCandidateSource(dictionary: dictionary, inventory: self.inventory),
         ]
     }
 
@@ -194,59 +196,11 @@ public final class PinyinEngine: @unchecked Sendable {
             }
         }
 
-        // 简拼: the whole key read as syllable initials (jldx → 吉林大学).
-        // When the letters are also full pinyin the interpretation is a long
-        // shot, so it sinks; when they are not (jldx, zgrm), it carries the
-        // list together with curated Latin entries.
-        if key.count <= 8 {
-            for entry in dictionary.abbreviated(key, limit: 8) {
-                add(
-                    Candidate(
-                        text: entry.text,
-                        pinyin: entry.displayPinyin,
-                        source: .abbreviation,
-                        consumed: key.count,
-                        score: ScoreModel.segmentLogProbability(
-                            weight: entry.weight,
-                            logTotalWeight: logTotal,
-                            form: .initials
-                        ) + ScoreModel.contextPromotion(
-                            weight: entry.weight,
-                            logTotalWeight: logTotal,
-                            conditional: contextConditional(entry.text)
-                        )
-                    )
-                )
-            }
-            for entry in dictionary.mixedCoded(key, limit: 6) {
-                add(
-                    Candidate(
-                        text: entry.text,
-                        pinyin: entry.displayPinyin,
-                        source: .abbreviation,
-                        consumed: key.count,
-                        score: ScoreModel.segmentLogProbability(
-                            weight: entry.weight,
-                            logTotalWeight: logTotal,
-                            form: .mixed
-                        ) + ScoreModel.contextPromotion(
-                            weight: entry.weight,
-                            logTotalWeight: logTotal,
-                            conditional: contextConditional(entry.text)
-                        )
-                    )
-                )
-            }
+        // The whole-key sources that historically ran after the sentence
+        // harvest, in their exact add() order.
+        for source in sources.dropFirst(Self.sourcesBeforeSentence) {
+            for candidate in source.candidates(for: request) { add(candidate) }
         }
-
-        // Personal names, generated as whole candidates rather than lattice
-        // edges. A name covering the entire buffer is one segment, and the
-        // decoder drops single-segment paths because they would duplicate
-        // exact dictionary matches — so a name assembled in the lattice was
-        // silently discarded. Emitting them here also keeps them out of the
-        // decoder's state budget, where they were measured to evict genuine
-        // word paths and cost 3.8 points of coverage.
-        for candidate in nameCandidates(key: key) { add(candidate) }
 
         // A fully typed curated key always surfaces its canonical form —
         // "claude" → Claude at the top in English mode; "ai" → AI as a lower
@@ -703,80 +657,6 @@ public final class PinyinEngine: @unchecked Sendable {
             if dictionary.unigramWeight(of: word) > 1 { return word }
         }
         return nil
-    }
-
-    /// Whole-buffer personal names: a surname followed by one or two
-    /// given-name characters.
-    ///
-    /// Character fallback already makes names constructible, but it picks the
-    /// commonest character per syllable — `wangjianlin` yields 望见林 rather
-    /// than 王建林 — because nothing marks those characters as name usage. The
-    /// name model supplies exactly that signal, and it is applied only when the
-    /// whole buffer could be a name, which is how people type them.
-    private func nameCandidates(key: String) -> [Candidate] {
-        guard dictionary.hasNameModel, key.count <= 12 else { return [] }
-        let segmenter = Segmenter(inventory: inventory)
-        let syllables = segmenter.edges(in: key)
-        guard !syllables.isEmpty else { return [] }
-        let length = key.count
-        var results: [Candidate] = []
-
-        for surnameEdge in syllables[0] where surnameEdge.syllable != "'" {
-            let surnames = dictionary.surnameCharacters(forSyllable: surnameEdge.syllable)
-            guard !surnames.isEmpty, surnameEdge.end < syllables.count else { continue }
-            for firstEdge in syllables[surnameEdge.end] where firstEdge.syllable != "'" {
-                let firstGiven = dictionary.givenNameCharacters(
-                    forSyllable: firstEdge.syllable, position: 1, limit: 4
-                )
-                guard !firstGiven.isEmpty else { continue }
-                for surname in surnames {
-                    for given in firstGiven {
-                        if firstEdge.end == length {
-                            results.append(
-                                nameCandidate(
-                                    text: surname.text + given.text,
-                                    pinyin: "\(surnameEdge.syllable) \(firstEdge.syllable)",
-                                    key: key,
-                                    logProbability: surname.logp + given.logp
-                                )
-                            )
-                        }
-                        guard firstEdge.end < syllables.count else { continue }
-                        for secondEdge in syllables[firstEdge.end]
-                        where secondEdge.syllable != "'" && secondEdge.end == length {
-                            for tail in dictionary.givenNameCharacters(
-                                forSyllable: secondEdge.syllable, position: 2, limit: 4
-                            ) {
-                                results.append(
-                                    nameCandidate(
-                                        text: surname.text + given.text + tail.text,
-                                        pinyin: "\(surnameEdge.syllable) \(firstEdge.syllable) \(secondEdge.syllable)",
-                                        key: key,
-                                        logProbability: surname.logp + given.logp + tail.logp
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return results
-    }
-
-    private func nameCandidate(
-        text: String,
-        pinyin: String,
-        key: String,
-        logProbability: Double
-    ) -> Candidate {
-        Candidate(
-            text: text,
-            pinyin: pinyin,
-            source: .name,
-            consumed: key.count,
-            score: logProbability
-        )
     }
 
     /// Chinese and Latin runs get a space between them, matching the
