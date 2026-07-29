@@ -45,7 +45,7 @@ public final class PinyinEngine: @unchecked Sendable {
 
     /// How many characters each syllable may contribute to the lattice.
     /// Swept on the development set; see Docs/architecture-v2.md.
-    private let characterFanIn = 20
+    private let characterFanIn = EngineConfig.shared.characterFanIn
 
     /// Trained ranking weights; the fallback reproduces the untrained engine.
     private let rankerWeights = RankerModel.defaultWeights()
@@ -53,7 +53,7 @@ public final class PinyinEngine: @unchecked Sendable {
     /// Characters per *tolerant* syllable reading. Tighter than the exact
     /// fan-in: each alternate multiplies edges, and a deviant reading has no
     /// business flooding the lattice it is only a guest in.
-    private let tolerantFanIn = 8
+    private let tolerantFanIn = EngineConfig.shared.tolerantFanIn
 
     public init(
         dictionary: DictTrie,

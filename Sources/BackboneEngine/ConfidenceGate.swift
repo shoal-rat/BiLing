@@ -28,7 +28,7 @@ public struct ConfidenceGate: Sendable {
            let value = Double(raw), value > 0, value < 1 {
             return value
         }
-        return 0.35
+        return EngineConfig.shared.gateThreshold
     }()
 
     /// Feature lists longer than the training dump's truncation would shift

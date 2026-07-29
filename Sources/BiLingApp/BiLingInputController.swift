@@ -230,9 +230,17 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         // to confirm it burns a wakeup and ~25 ms of GPU for nothing. The
         // calibrated gate estimates P(top-1 wrong) from the shape of the
         // whole list; without its file this is the old margin rule.
-        guard ConfidenceGate.shouldInvokeModel(
-            sortedScores: candidates.map(\.score)
-        ) else { return }
+        let gateOpen = ConfidenceGate.shouldInvokeModel(sortedScores: candidates.map(\.score))
+        if EngineConfig.shared.diagnostics {
+            // Opt-in only (config.json diagnostics=true): keystroke content
+            // in the unified log is a privacy decision the user must make.
+            let top = candidates.prefix(3).map { "\($0.text)/\($0.source.rawValue)" }
+                .joined(separator: " ")
+            Self.logger.info(
+                "key=\(self.rawInput, privacy: .private) gate=\(gateOpen ? "invoke" : "skip") top=[\(top, privacy: .private)]"
+            )
+        }
+        guard gateOpen else { return }
 
         let request = RankRequest(
             clientID: clientID,

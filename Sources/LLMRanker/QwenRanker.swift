@@ -60,7 +60,9 @@ public final class QwenRanker: @unchecked Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int {
         guard let raw = environment["BILING_MODEL_TIMEOUT_MS"],
-              let value = Int(raw), value > 0 else { return 2_500 }
+              let value = Int(raw), value > 0 else {
+            return EngineConfig.shared.modelTimeoutMilliseconds
+        }
         return value
     }
 

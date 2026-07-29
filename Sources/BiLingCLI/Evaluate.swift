@@ -198,15 +198,32 @@ enum Evaluate {
             let latencies = items.map(\.milliseconds).sorted()
             let median = latencies[latencies.count / 2]
             let p95 = latencies[min(latencies.count - 1, Int(Double(latencies.count) * 0.95))]
+            // What the user experiences, beyond right-or-wrong:
+            // - first-page: the answer is reachable without paging (9 slots);
+            // - avg-pos: how far down the finger travels when it is there;
+            // - keys/char: letters typed plus one selection keystroke per
+            //   character produced — the number abbreviations exist to lower.
+            let firstPage = items.filter { ($0.rank ?? .max) <= 9 }.count
+            let positions = items.compactMap(\.rank)
+            let averagePosition = positions.isEmpty
+                ? Double.nan
+                : Double(positions.reduce(0, +)) / Double(positions.count)
+            let keysPerChar = items.reduce(0.0) { sum, outcome in
+                let produced = max(1, outcome.row.expected.filter { !$0.isASCII }.count)
+                return sum + Double(outcome.row.pinyin.count + 1) / Double(produced)
+            } / Double(items.count)
             print(
                 String(
-                    format: "%-13@ n=%-4d top1 %5.1f%%  top5 %5.1f%%  cover %5.1f%%  MRR %.3f  median %6.1f ms  p95 %6.1f ms",
+                    format: "%-13@ n=%-4d top1 %5.1f%%  top5 %5.1f%%  page1 %5.1f%%  cover %5.1f%%  MRR %.3f  pos %4.1f  keys/char %4.2f  median %6.1f ms  p95 %6.1f ms",
                     label as NSString,
                     items.count,
                     100 * Double(top1) / Double(items.count),
                     100 * Double(top5) / Double(items.count),
+                    100 * Double(firstPage) / Double(items.count),
                     100 * Double(covered) / Double(items.count),
                     mrr,
+                    averagePosition,
+                    keysPerChar,
                     median,
                     p95
                 )

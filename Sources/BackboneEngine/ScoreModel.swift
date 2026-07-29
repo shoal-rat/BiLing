@@ -38,10 +38,69 @@ public enum ScoreModel {
 
         var logProbability: Double {
             switch self {
-            case .full: log(0.80)
-            case .mixed: log(0.13)
-            case .initials: log(0.07)
+            case .full: TypingChannel.active.logFull
+            case .mixed: TypingChannel.active.logMixed
+            case .initials: TypingChannel.active.logInitials
             }
+        }
+    }
+
+    /// The typing-channel model: P(the user writes a word in each form).
+    ///
+    /// The shipped defaults are usage priors — order and rough spacing chosen
+    /// by sweep, not measurement, because measuring them honestly needs the
+    /// user's own typing. That is exactly what the learning store's event log
+    /// records: `Tools/DataPipeline/fit_typing_channel.py` classifies each
+    /// committed selection by the form its keystrokes used and refits the
+    /// three probabilities. Fitting them from a *sampled* corpus instead
+    /// would be circular — the derived corpora sample keystroke forms from
+    /// this very prior — so the fit script accepts only real event exports
+    /// and says so.
+    public struct TypingChannel: Sendable {
+        public let logFull: Double
+        public let logMixed: Double
+        public let logInitials: Double
+
+        public static let fallback = TypingChannel(full: 0.80, mixed: 0.13, initials: 0.07)
+
+        /// Resolved once per process: personal fit if present and valid,
+        /// fallback otherwise. A malformed file must never move a prior.
+        public static let active: TypingChannel = load() ?? .fallback
+
+        public init(full: Double, mixed: Double, initials: Double) {
+            logFull = log(full)
+            logMixed = log(mixed)
+            logInitials = log(initials)
+        }
+
+        static func load() -> TypingChannel? {
+            let candidates: [URL?] = [
+                ProcessInfo.processInfo.environment["BILING_TYPING_CHANNEL_PATH"]
+                    .map(URL.init(fileURLWithPath:)),
+                FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+                    .first?.appendingPathComponent("BiLing/typing-channel.json"),
+            ]
+            for url in candidates.compactMap({ $0 }) {
+                if let channel = load(from: url) { return channel }
+            }
+            return nil
+        }
+
+        static func load(from url: URL) -> TypingChannel? {
+            guard let data = try? Data(contentsOf: url),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["schema"] as? String == "biling-typing-channel",
+                  object["version"] as? Int == 1,
+                  let full = object["full"] as? Double,
+                  let mixed = object["mixed"] as? Double,
+                  let initials = object["initials"] as? Double,
+                  full > 0, mixed > 0, initials > 0,
+                  abs(full + mixed + initials - 1) < 1e-6,
+                  // Guardrails: a fit that inverts the form ordering is far
+                  // more likely a classification bug than a real typist.
+                  full >= mixed, full >= initials
+            else { return nil }
+            return TypingChannel(full: full, mixed: mixed, initials: initials)
         }
     }
 
