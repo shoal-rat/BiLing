@@ -127,9 +127,16 @@ build the lexicon. This matters: a rebuild with different boosts silently
 shifted every weight in the database once, and the recorded value is what made
 it detectable.
 
+### Per-source manifests
+
+`data/manifests/` holds one JSON manifest per source — URL, sha256 of the local
+file, retrieval date, role (lexicon / LM / name model / evaluation), and the
+licence **with a record of how it was verified** (what was fetched, when, and
+via what route). The policy, spelled out in `data/manifests/README.md`: no
+source ships without a manifest.
+
 ### Not yet implemented
 
-Per-source manifests under `data/manifests/` with URL, checksum, retrieval date
-and preprocessing steps; automated licence verification; near-duplicate removal
-beyond what Leipzig does upstream; and privacy filtering of training text. All
-are named in the v2 plan and none exist yet.
+Automated licence re-verification; near-duplicate removal beyond what Leipzig
+does upstream; and privacy filtering of training text. These remain named in
+the v2 plan.
