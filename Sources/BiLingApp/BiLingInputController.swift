@@ -21,7 +21,8 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
     private var generation: UInt64 = 0
     private var page = 0
     private var selectedInPage = 0
-    private var committedContext = ""
+    private var stability = CandidateStabilityController()
+    private var committedContext = CommittedContext()
     private var documentContext = ""
     private var fetchedContextThisComposition = false
     private var activeContext = ""
@@ -141,11 +142,16 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
     override func deactivateServer(_ sender: Any!) {
         if !rawInput.isEmpty { commitSelected(sender) }
         panel.dismiss()
+        // The user is switching apps or fields. Text committed here belongs
+        // to this client; it must never influence the ranking - or surface in
+        // any form - in the next one.
+        committedContext.clientChanged()
     }
 
     override func inputControllerWillClose() {
         Self.logger.notice("Closing an InputMethodKit client session")
         resetState()
+        committedContext.clientChanged()
     }
 
     override func hidePalettes() {
@@ -190,7 +196,7 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
             fetchedContextThisComposition = true
             documentContext = Self.documentContext(from: sender as? IMKTextInput)
         }
-        activeContext = documentContext.isEmpty ? committedContext : documentContext
+        activeContext = documentContext.isEmpty ? committedContext.text : documentContext
 
         // Read the fuzzy preference per keystroke: the preferences window is
         // reachable mid-composition, and a toggle should apply to the next
@@ -201,7 +207,14 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
             context: activeContext,
             generation: generation
         )
-        candidates = result.candidates
+        stability.keystroke(buffer: rawInput)
+        candidates = stability.resolve(
+            shown: candidates,
+            proposed: result.candidates,
+            update: .keystroke,
+            id: \.text,
+            score: \.score
+        )
         updateMarkedText(sender)
         showPanel(sender)
 
@@ -231,13 +244,25 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         runtime.llm.rank(request) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
+                // A reply may only touch the exact composition it was
+                // computed for: same client, same generation, same buffer.
+                let stamp = CompositionStamp(generation: self.generation, buffer: self.rawInput)
                 switch result {
                 case .success(let reply):
-                    guard reply.clientID == self.clientID, reply.generation == self.generation else { return }
+                    guard reply.clientID == self.clientID,
+                          AsyncReplyGate.shouldApply(
+                              replyGeneration: reply.generation,
+                              requestBuffer: request.input,
+                              current: stamp
+                          ) else { return }
                     self.apply(reply)
                     self.showPanel(self.client())
                 case .failure(let error):
-                    guard request.generation == self.generation else { return }
+                    guard AsyncReplyGate.shouldApply(
+                        replyGeneration: request.generation,
+                        requestBuffer: request.input,
+                        current: stamp
+                    ) else { return }
                     // The deterministic candidate list is already on screen and
                     // stays fully usable; the panel only flips its Qwen badge.
                     self.engineFailure = error.localizedDescription
@@ -248,11 +273,21 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
     }
 
     private func apply(_ reply: RankReply) {
-        candidates = CandidateBlender.blend(
+        let blended = CandidateBlender.blend(
             candidates,
             orderedCandidates: reply.orderedCandidates,
             scores: reply.scores,
             hasContext: !activeContext.isEmpty
+        )
+        // The model's reordering arrives while the deterministic list is
+        // already on screen; the stability controller decides how much of it
+        // the user actually sees move.
+        candidates = stability.resolve(
+            shown: candidates,
+            proposed: blended,
+            update: .asyncRescore,
+            id: \.text,
+            score: \.score
         )
         llmLatency = reply.latencyMilliseconds
         runtime.llm.noteRankSuccess(model: reply.modelDescription)
@@ -319,6 +354,9 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         let count = pageCandidates().count
         guard count > 0 else { return }
         selectedInPage = (selectedInPage + delta + count) % count
+        // The user is now pointing at this list; a late rescoring may append
+        // candidates but no longer reorder the ones on display.
+        stability.noteUserNavigation()
         showPanel(sender)
     }
 
@@ -326,6 +364,7 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         let maxPage = max(0, (candidates.count - 1) / pageSize)
         page = min(max(0, page + delta), maxPage)
         selectedInPage = 0
+        stability.noteUserNavigation()
         showPanel(sender)
     }
 
@@ -359,17 +398,12 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
     }
 
     private func appendToContext(_ text: String) {
-        committedContext += text
-        // Trim with hysteresis: a hard per-commit suffix would shift the window
-        // on every commit and defeat the daemon's KV prefix cache.
-        if committedContext.count > 3_072 {
-            committedContext = String(committedContext.suffix(1_536))
-        }
+        committedContext.append(text)
     }
 
     private func applyAutoSpacing(_ text: String) -> String {
         guard AppSettings.shared.autoSpacing,
-              let previous = committedContext.last,
+              let previous = committedContext.text.last,
               let next = text.first else { return text }
         let previousLatin = previous.isASCII && previous.isLetter
         let nextLatin = next.isASCII && next.isLetter
@@ -385,7 +419,7 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
 
     private func insertFullWidthPunctuationIfNeeded(_ text: String, sender: Any!) -> Bool {
         guard AppSettings.shared.fullWidthPunctuation,
-              let previous = committedContext.last,
+              let previous = committedContext.text.last,
               isCJK(previous),
               let punctuation = [
                   ",": "，",
@@ -425,7 +459,11 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         candidates = []
         page = 0
         selectedInPage = 0
+        stability.compositionEnded()
         documentContext = ""
+        // Holds a copy of client text; drop it as soon as the composition
+        // ends rather than carrying it until the next one begins.
+        activeContext = ""
         fetchedContextThisComposition = false
         panel.dismiss()
     }

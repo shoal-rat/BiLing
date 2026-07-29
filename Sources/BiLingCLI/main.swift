@@ -7,6 +7,7 @@ func usage() -> Never {
     print("""
     Usage: biling-cli [--xpc | --engine-only] [--fuzzy] [--model path] [--adapter path] \
     [--context text] PINYIN
+           biling-cli --replay CORPUS [--replay-limit N] [--stability] [--engine-only]
            biling-cli --export-training-data DIR
     """)
     exit(64)
@@ -25,6 +26,7 @@ var evaluateCorpus: URL?
 var dumpFeaturesCorpus: URL?
 var replayCorpus: URL?
 var replayLimit = 50
+var replayStability = false
 var exportDirectory: String?
 var learningExportPath: String?
 var forgetLearnedID: Int64?
@@ -43,6 +45,8 @@ while !arguments.isEmpty {
     case "--replay-limit":
         guard !arguments.isEmpty else { usage() }
         replayLimit = Int(arguments.removeFirst()) ?? 50
+    case "--stability":
+        replayStability = true
     case "--dump-features":
         guard !arguments.isEmpty else { usage() }
         dumpFeaturesCorpus = URL(fileURLWithPath: arguments.removeFirst())
@@ -126,7 +130,8 @@ if let replayCorpus {
             corpus: replayCorpus,
             limit: replayLimit,
             ranker: ranker,
-            useContext: !noContext
+            useContext: !noContext,
+            stability: replayStability
         )
         exit(0)
     } catch {

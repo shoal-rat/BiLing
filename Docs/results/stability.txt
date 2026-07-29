@@ -1,0 +1,100 @@
+Candidate-list stability: measured churn with and without the controller
+========================================================================
+
+Date        2026-07-29
+Machine     Apple M5, macOS 26.5.2
+Model       Models/qwen3-0.6b-base-q4_k_m.gguf (no adapter)
+Corpus      Tests/Corpus/eval.tsv (72 items after the 200-item cap, 720 keystrokes)
+Branch      wt/stability (measurements re-run at the final configuration)
+
+The replay drives two pipelines with byte-identical inputs: the lists exactly
+as the engine and reranker produce them ("raw"), and the same lists filtered
+through CandidateStabilityController ("stabilised") — what the user would see.
+The model runs once per item, on the settled buffer, as in the live engine.
+
+Run 1 — engine only (no model, so no asynchronous updates)
+----------------------------------------------------------
+$ .build/release/biling-cli --replay Tests/Corpus/eval.tsv --replay-limit 200 \
+      --engine-only --stability
+
+  churn seen by the user             raw                    stabilised
+    keystroke top-1 changes          591/648 (91.2%)        591/648 (91.2%)
+    rescoring top-1 flips            0 of 0                 0 of 0
+  outcome at the final keystroke
+    top-1 accuracy                   79.2%                  79.2%
+    final top-1 divergence           0 of 72 items
+
+With no asynchronous rescoring the controller is bit-for-bit a no-op. This is
+by design, and it was not free: an earlier draft let cross-keystroke top
+changes arm the oscillation damper, which cost 2.8 points of final top-1
+accuracy (79.2% -> 76.4%) while reducing keystroke churn by exactly zero.
+The engine replacing its own top as the buffer grows is composition, not
+oscillation; only asynchronous demotions arm the damper now.
+
+(The 97.1% figure in replay-statistical.txt was measured over a different
+120-item corpus; on eval.tsv the raw keystroke churn is 91.2%. Both numbers
+are dominated by the buffer growing into genuinely different words, which no
+stability rule should suppress.)
+
+Run 2 — with Qwen reranking, negligible-gain threshold 0.5 nats (first draft)
+-----------------------------------------------------------------------------
+$ .build/release/biling-cli --replay Tests/Corpus/eval.tsv --replay-limit 200 \
+      --stability          # controller at negligibleGainThreshold = 0.5
+
+  churn seen by the user             raw                    stabilised
+    keystroke top-1 changes          591/648 (91.2%)        591/648 (91.2%)
+    rescoring top-1 flips            10 of 72               5 of 72
+  outcome at the final keystroke
+    top-1 accuracy                   87.5%                  83.3%
+    final top-1 divergence           5 of 72 items
+
+Halving the visible flips cost 4.2 points of accuracy. The per-flip record
+(BILING_FLIP_DEBUG=1) shows why — blended-score gain of every raw flip, and
+whether the flip moved the labelled answer in or out of rank 1:
+
+    gain (nats)  flip                                     verdict
+    0.050        这个的没写得不错 -> 这个的默写得不错      neither correct
+    0.114        我们明天在开会 -> 我们明天再开会          correction
+    0.114        我们明天在开会 -> 我们明天再开会          correction
+    0.197        李希 -> 利息                              correction
+    0.437        我在poly学的类似 -> 我在poly学到类似      neither correct
+    0.894        实验 -> 誓言                              correction
+    1.203        Python -> pythonic                        wrong
+    3.298        今天提前真不错 -> 今天天气真不错          correction
+    3.531        想起 -> 象棋                              correction
+    3.786        医生 -> 一生                              correction
+
+Gain does not separate right from wrong here: the model's small-gain flips
+are mostly context corrections (在->再, 利息) whose blended gains are
+compressed by the language-model weight, while the one clearly wrong flip
+carried 1.2 nats. A 0.5-nat threshold therefore suppresses corrections
+before it suppresses mistakes.
+
+Run 3 — with Qwen reranking, calibrated default (0.1 nats) — SHIPPED
+--------------------------------------------------------------------
+$ .build/release/biling-cli --replay Tests/Corpus/eval.tsv --replay-limit 200 \
+      --stability
+
+  churn seen by the user             raw                    stabilised
+    keystroke top-1 changes          591/648 (91.2%)        591/648 (91.2%)
+    rescoring top-1 flips            10 of 72               9 of 72
+  outcome at the final keystroke
+    top-1 accuracy                   87.5%                  87.5%
+    final top-1 divergence           1 of 72 items
+
+At 0.1 nats only the purely cosmetic flip (0.050 nats, neither order
+correct) is suppressed; every correction passes and final accuracy is
+untouched. This is the shipped default; the threshold remains a parameter
+for A/B measurement.
+
+What this replay cannot exercise
+--------------------------------
+- Rule (a), the navigation lock: the replay has no user, so nobody arrows
+  through the list. Covered by unit tests; in live typing it is the rule
+  that matters most, because a reply landing after the user starts aiming
+  is what turns reordering into a mis-selection.
+- Rule (c), oscillation damping (re-promotion margin 2.0 nats): the replay
+  issues one asynchronous update per composition, so no A->B->A cycle can
+  form. Covered by unit tests.
+
+Reproduce with:  swift build -c release && the commands above.
