@@ -53,7 +53,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "BiLingCLI",
-            dependencies: ["BackboneEngine", "LLMRanker"]
+            dependencies: ["BackboneEngine", "InputSessionCore", "LLMRanker"]
         ),
         .executableTarget(
             name: "BiLingEngine",

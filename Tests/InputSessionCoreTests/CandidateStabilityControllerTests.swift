@@ -68,8 +68,8 @@ struct CandidateStabilityControllerTests {
         var controller = CandidateStabilityController()
         controller.keystroke(buffer: "shi")
         let shown = [Entry(text: "是", score: 1.0), Entry(text: "时", score: 0.8)]
-        // 时 improves to 1.3: a 0.3-nat lead over 是, below the 0.5 default.
-        let proposed = [Entry(text: "时", score: 1.3), Entry(text: "是", score: 1.0)]
+        // 时 improves to 1.05: a 0.05-nat lead over 是, below the 0.1 default.
+        let proposed = [Entry(text: "时", score: 1.05), Entry(text: "是", score: 1.0)]
         let result = resolve(&controller, shown: shown, proposed: proposed, update: .asyncRescore)
         #expect(result.map(\.text) == ["是", "时"])
     }
@@ -91,7 +91,7 @@ struct CandidateStabilityControllerTests {
         )
         controller.keystroke(buffer: "shi")
         let shown = [Entry(text: "是", score: 1.0), Entry(text: "时", score: 0.8)]
-        // A 0.6-nat lead clears the 0.5 default but not this run's 1.0.
+        // A 0.6-nat lead clears the 0.1 default but not this run's 1.0.
         let proposed = [Entry(text: "时", score: 1.6), Entry(text: "是", score: 1.0)]
         let result = resolve(&controller, shown: shown, proposed: proposed, update: .asyncRescore)
         #expect(result.map(\.text) == ["是", "时"])
@@ -104,11 +104,11 @@ struct CandidateStabilityControllerTests {
         let shown = [Entry(text: "吗", score: 2.0), Entry(text: "妈", score: 1.0)]
         let proposed = [
             Entry(text: "吗", score: 2.0),
-            Entry(text: "码", score: 2.1),
+            Entry(text: "码", score: 2.05),
             Entry(text: "妈", score: 1.0),
         ]
         let result = resolve(&controller, shown: shown, proposed: proposed, update: .asyncRescore)
-        // 码 beats 妈 by 1.1 nats (moves above) but 吗 by only 0.1 (stays below).
+        // 码 beats 妈 by 1.05 nats (moves above) but 吗 by 0.05 (stays below).
         #expect(result.map(\.text) == ["吗", "码", "妈"])
     }
 
@@ -313,15 +313,21 @@ struct CandidateStabilityControllerTests {
             proposed: [Entry(text: "你", score: 3), Entry(text: "尼", score: 2)],
             update: .keystroke
         )
-        // At "nih" the engine itself dethrones 你 (recorded at buffer "nih").
+        // At "nih" the rescorer dethrones 你 (recorded at buffer "nih").
         controller.keystroke(buffer: "nih")
         list = resolve(
             &controller,
             shown: list,
-            proposed: [Entry(text: "你好", score: 6), Entry(text: "你", score: 3)],
+            proposed: [Entry(text: "你", score: 4), Entry(text: "尼", score: 3)],
             update: .keystroke
         )
-        #expect(list.map(\.text) == ["你好", "你"])
+        list = resolve(
+            &controller,
+            shown: list,
+            proposed: [Entry(text: "尼", score: 5), Entry(text: "你", score: 4)],
+            update: .asyncRescore
+        )
+        #expect(list.map(\.text) == ["尼", "你"])
         // Backspace to "ni": that judgement concerned "nih", not "ni", so 你
         // may top again on an ordinary margin.
         controller.keystroke(buffer: "ni")
@@ -332,6 +338,37 @@ struct CandidateStabilityControllerTests {
             update: .keystroke
         )
         #expect(list.map(\.text) == ["你", "尼"])
+    }
+
+    @Test("The engine replacing its own top across keystrokes is not an oscillation")
+    func keystrokeDemotionsDoNotArmTheDamper() {
+        var controller = CandidateStabilityController()
+        controller.keystroke(buffer: "ni")
+        var list = resolve(
+            &controller,
+            shown: [],
+            proposed: [Entry(text: "你", score: 3), Entry(text: "尼", score: 2)],
+            update: .keystroke
+        )
+        // The engine dethrones 你 for the grown buffer: ordinary composition.
+        controller.keystroke(buffer: "nih")
+        list = resolve(
+            &controller,
+            shown: list,
+            proposed: [Entry(text: "你好", score: 6), Entry(text: "你", score: 3)],
+            update: .keystroke
+        )
+        #expect(list.map(\.text) == ["你好", "你"])
+        // When the engine later prefers 你 again on a slim margin, that
+        // choice stands: only asynchronous demotions arm the damper.
+        controller.keystroke(buffer: "niha")
+        list = resolve(
+            &controller,
+            shown: list,
+            proposed: [Entry(text: "你", score: 4.1), Entry(text: "你好", score: 4.0)],
+            update: .keystroke
+        )
+        #expect(list.map(\.text) == ["你", "你好"])
     }
 
     @Test("A demotion recorded at the current buffer survives a backspace to it")

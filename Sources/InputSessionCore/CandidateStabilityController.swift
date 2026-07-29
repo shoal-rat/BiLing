@@ -17,17 +17,25 @@ import Foundation
 ///    state, an asynchronous rescoring may not reorder what is displayed;
 ///    new candidates may only append at the end.
 /// 2. **Negligible-gain suppression** (`negligibleGainThreshold`, default
-///    0.5 nats). An asynchronous update may only move a candidate above
+///    0.1 nats). An asynchronous update may only move a candidate above
 ///    another if its score exceeds the other's by at least the threshold.
 ///    Realised moves are composed of adjacent swaps that each clear the
 ///    threshold, so a candidate never climbs past one it beats only barely —
 ///    order changes the user can actually perceive as *better* survive,
-///    cosmetic ones do not.
+///    cosmetic ones do not. The threshold reads *blended* scores, which the
+///    language-model weight compresses; replay calibration showed genuine
+///    context corrections arriving with gains near 0.11 nats, so anything
+///    much above 0.1 trades accuracy for stillness
+///    (Docs/results/stability.txt).
 /// 3. **Oscillation damping** (`repromotionMargin`, default 2.0 nats). A
-///    candidate that already held rank 1 in this composition and lost it is
-///    not promoted back to rank 1 unless it now beats every alternative by
-///    the margin. This stops rank 1 from flapping A→B→A while deterministic
-///    and model rankings disagree.
+///    candidate that held rank 1 in this composition and was demoted by an
+///    asynchronous rescoring is not promoted back to rank 1 — by any later
+///    update — unless it now beats every alternative by the margin. This
+///    stops rank 1 from flapping A→B→A while deterministic and model
+///    rankings disagree. Only asynchronous demotions arm the damper: the
+///    deterministic engine replacing its own top as the buffer grows is
+///    ordinary composition, and vetoing its later choices measurably costs
+///    accuracy without reducing churn (see Docs/results/stability.txt).
 /// 4. **Keystroke reset**. A buffer change is a new composition state: the
 ///    interaction lock clears and the freshly decoded list is accepted as
 ///    proposed (rules 1–2 do not constrain it). Only rule 3's demotion
@@ -39,7 +47,9 @@ public struct CandidateStabilityController: Sendable {
         /// Minimum score improvement, in nats, before an asynchronous update
         /// may lift one displayed candidate above another. Below this the
         /// reranker's preference is treated as noise and the displayed order
-        /// is kept. Default 0.5 nats (≈ e^0.5 ≈ 1.6× probability ratio).
+        /// is kept. Compared against blended scores, which compress the
+        /// model's evidence; the 0.1-nat default is calibrated on the replay
+        /// corpus so that real corrections pass and cosmetic swaps do not.
         public var negligibleGainThreshold: Double
 
         /// Minimum lead, in nats, over every other candidate before a
@@ -48,7 +58,7 @@ public struct CandidateStabilityController: Sendable {
         public var repromotionMargin: Double
 
         public init(
-            negligibleGainThreshold: Double = 0.5,
+            negligibleGainThreshold: Double = 0.1,
             repromotionMargin: Double = 2.0
         ) {
             self.negligibleGainThreshold = negligibleGainThreshold
@@ -145,7 +155,7 @@ public struct CandidateStabilityController: Sendable {
         }
 
         applyOscillationDamping(to: &result, shownTopID: shownTopID, id: id, score: score)
-        recordTopTransition(from: shownTopID, in: result, id: id)
+        recordTopTransition(from: shownTopID, in: result, update: update, id: id)
         return result
     }
 
@@ -246,10 +256,14 @@ public struct CandidateStabilityController: Sendable {
     private mutating func recordTopTransition<C>(
         from shownTopID: String?,
         in result: [C],
+        update: Update,
         id: (C) -> String
     ) {
         guard let newTopID = result.first.map(id) else { return }
-        if let shownTopID, shownTopID != newTopID {
+        // Only an asynchronous rescoring arms the damper. The deterministic
+        // engine replacing its own top as the buffer grows is composition,
+        // not disagreement, and its later choices must stay unvetoed.
+        if case .asyncRescore = update, let shownTopID, shownTopID != newTopID {
             demotedFromTop[shownTopID] = buffer
         }
         // Holding rank 1 again clears the mark: the next demotion is a fresh
