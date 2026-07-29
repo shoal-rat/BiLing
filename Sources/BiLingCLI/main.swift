@@ -29,6 +29,7 @@ var replayLimit = 50
 var replayStability = false
 var exportDirectory: String?
 var learningExportPath: String?
+var perItemPath: String?
 var forgetLearnedID: Int64?
 while !arguments.isEmpty {
     let item = arguments.removeFirst()
@@ -67,6 +68,9 @@ while !arguments.isEmpty {
     case "--export-training-data":
         guard !arguments.isEmpty else { usage() }
         exportDirectory = arguments.removeFirst()
+    case "--per-item":
+        guard !arguments.isEmpty else { usage() }
+        perItemPath = arguments.removeFirst()
     case "--export-learning":
         guard !arguments.isEmpty else { usage() }
         learningExportPath = arguments.removeFirst()
@@ -147,7 +151,8 @@ if let evaluateCorpus {
             corpus: evaluateCorpus,
             ranker: ranker,
             useContext: !noContext,
-            tolerance: fuzzy ? .all : .off
+            tolerance: fuzzy ? .all : .off,
+            perItemPath: perItemPath
         )
         exit(0)
     } catch {

@@ -1,0 +1,36 @@
+Paired with-context comparison vs Apple Pinyin (2026-07-29)
+===========================================================
+Machine: Apple M5, 16 GB, macOS 26 (build recorded by `sw_vers` at run time);
+Apple IME = com.apple.inputmethod.SCIM.ITABC via CGEvent harness
+(scripts/apple_baseline.swift --context: the item's committed context is
+seeded into the text view with the caret at the end — the same
+surrounding-text channel any app gives an IME — and only text appearing
+after the seed is read as the answer). BiLing = full system (Qwen +
+dual-mode gate), scripts documented in docs/apple-comparison-protocol.md.
+Caveat inherited from the protocol doc: Apple's own user learning cannot be
+reset and its state on this machine is part of the system under test.
+
+1) General text: 150 items sampled from the held-out derived test set
+   (first 150 rows with non-empty context and a-z-typeable keys).
+     BiLing 76.0%   Apple 77.3%
+     paired difference -1.3 pts, 95% CI [-7.3, +4.7]; wins/losses/ties
+     10/12/128 (paired bootstrap, B=10000, seed=20260729)
+   -> statistical parity. For reference, the frozen no-context comparison
+      (260 items, Docs/results/apple-comparison.txt) had Apple ahead by
+      10.4 points. Committed context closes the gap to noise.
+
+2) Context disambiguation: Tests/Corpus/contrast.tsv (43 authored items
+   where the same pinyin must resolve differently by context).
+     with context:  BiLing 79.1%   Apple 67.4%
+       paired difference +11.6 pts, 95% CI [+0.0, +23.3]; w/l/t 6/1/36
+     no context:    BiLing 41.9%   Apple 46.5%
+   -> BiLing leads on every resampled draw but the CI boundary touches
+      zero at n=43: real on this sample, too small to certify. No SOTA
+      claim is made; the honest statement is parity on general text with
+      the advantage concentrated exactly where the design aims — using
+      committed context — and Apple still ahead cold.
+
+Commands:
+  .build/release/biling-cli --evaluate <tsv> [--no-context] --per-item out.tsv
+  swift scripts/apple_baseline.swift <tsv> <n> [--context] > out.tsv
+  python3 scripts/paired_bootstrap.py biling.tsv apple.tsv

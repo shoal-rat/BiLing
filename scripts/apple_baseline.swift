@@ -9,7 +9,13 @@
 // landed. Synthetic key events require Accessibility permission for this
 // process; without it the run aborts rather than reporting silence as failure.
 //
-// Usage: swift scripts/apple_baseline.swift corpus.tsv [limit] > results.tsv
+// Usage: swift scripts/apple_baseline.swift corpus.tsv [limit] [--context] > results.tsv
+//
+// --context seeds each item's committed context into the text view before the
+// keystrokes, caret at the end — the same surrounding-text channel a real app
+// gives any IME, and the same committed text BiLing conditions on. Both
+// systems then see identical evidence, which is what makes the with-context
+// comparison paired rather than rhetorical.
 
 import AppKit
 import Carbon
@@ -20,7 +26,8 @@ guard arguments.count >= 2 else {
     exit(64)
 }
 let corpusPath = arguments[1]
-let limit = arguments.count > 2 ? Int(arguments[2]) ?? 200 : 200
+let useContext = arguments.contains("--context")
+let limit = arguments.dropFirst(2).compactMap(Int.init).first ?? 200
 let appleSource = "com.apple.inputmethod.SCIM.ITABC"
 
 guard AXIsProcessTrusted() else {
@@ -128,7 +135,7 @@ guard select(appleSource) else {
 }
 spin(1.0)
 
-struct Row { let category: String; let pinyin: String; let expected: String }
+struct Row { let category: String; let context: String; let pinyin: String; let expected: String }
 var rows: [Row] = []
 for line in (try? String(contentsOfFile: corpusPath, encoding: .utf8))?
     .split(separator: "\n") ?? [] {
@@ -137,14 +144,21 @@ for line in (try? String(contentsOfFile: corpusPath, encoding: .utf8))?
     guard fields.count >= 4 else { continue }
     // Only keys the harness can actually type.
     guard fields[2].allSatisfy({ keyCodes[$0] != nil }) else { continue }
-    rows.append(Row(category: fields[0], pinyin: fields[2], expected: fields[3]))
+    rows.append(Row(
+        category: fields[0],
+        context: fields[1] == "-" ? "" : fields[1],
+        pinyin: fields[2],
+        expected: fields[3]
+    ))
 }
 rows = Array(rows.prefix(limit))
 
-print("category\tpinyin\texpected\tapple\tcorrect")
+print("category\tcontext\tpinyin\texpected\tapple\tcorrect")
 var correct = 0
 for (index, row) in rows.enumerated() {
-    textView.string = ""
+    let seeded = useContext ? row.context : ""
+    textView.string = seeded
+    textView.setSelectedRange(NSRange(location: (seeded as NSString).length, length: 0))
     spin(0.05)
     for character in row.pinyin {
         guard let code = keyCodes[character] else { continue }
@@ -155,7 +169,15 @@ for (index, row) in rows.enumerated() {
     spin(0.45)
     post(spaceKey)
     spin(0.45)
-    var produced = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+    func converted() -> String {
+        // Only what appeared after the seeded context is the IME's answer.
+        let whole = textView.string as NSString
+        let seededLength = (seeded as NSString).length
+        guard whole.length >= seededLength else { return "" }
+        return whole.substring(from: seededLength)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    var produced = converted()
     // Long input can convert in several segments: keep committing until the
     // view stops growing, so the comparison sees the whole sentence.
     var attempts = 0
@@ -163,14 +185,14 @@ for (index, row) in rows.enumerated() {
         let before = produced
         post(spaceKey)
         spin(0.35)
-        produced = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        produced = converted()
         attempts += 1
         if produced == before && !produced.isEmpty { break }
         if attempts >= 6 { break }
     }
     let matched = produced == row.expected
     if matched { correct += 1 }
-    print("\(row.category)\t\(row.pinyin)\t\(row.expected)\t\(produced)\t\(matched ? 1 : 0)")
+    print("\(row.category)\t\(row.context)\t\(row.pinyin)\t\(row.expected)\t\(produced)\t\(matched ? 1 : 0)")
     // Clear any composition the IME is still holding.
     post(escapeKey)
     spin(0.06)

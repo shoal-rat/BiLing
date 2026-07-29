@@ -110,7 +110,8 @@ enum Evaluate {
         corpus: URL,
         ranker: QwenRanker?,
         useContext: Bool,
-        tolerance: ToleranceOptions = .off
+        tolerance: ToleranceOptions = .off,
+        perItemPath: String? = nil
     ) throws {
         let rows = try parse(corpus)
         let engine = try PinyinEngine(
@@ -167,6 +168,20 @@ enum Evaluate {
             )
         }
         report(outcomes)
+        // Per-item vector for scripts/paired_bootstrap.py: same columns the
+        // Apple harness emits, so the two runs pair by (context, pinyin).
+        if let perItemPath {
+            var lines = ["category\tcontext\tpinyin\texpected\tbiling\tcorrect"]
+            for outcome in outcomes {
+                let correct = outcome.rank == 1 ? 1 : 0
+                let context = outcome.row.context.isEmpty ? "-" : outcome.row.context
+                lines.append(
+                    "\(outcome.row.category)\t\(context)\t\(outcome.row.pinyin)\t\(outcome.row.expected)\t\(outcome.top)\t\(correct)"
+                )
+            }
+            try lines.joined(separator: "\n").appending("\n")
+                .write(toFile: perItemPath, atomically: true, encoding: .utf8)
+        }
         if invocations + gatedOut > 0 {
             let rate = 100 * Double(invocations) / Double(invocations + gatedOut)
             print(String(format: "\nmodel gate: invoked %d of %d items (%.1f%%)",
