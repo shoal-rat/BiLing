@@ -62,3 +62,64 @@ public struct CandidateRequest {
 public protocol WholeKeyCandidateSource {
     func candidates(for request: CandidateRequest) -> [Candidate]
 }
+
+/// Words the user has previously chosen for this exact key, rescored from
+/// their decayed selection counts into the shared log-probability space.
+public struct LearnedCandidateSource: WholeKeyCandidateSource {
+    let learningStore: any LearningStore
+    let dictionary: DictTrie
+
+    public init(learningStore: any LearningStore, dictionary: DictTrie) {
+        self.learningStore = learningStore
+        self.dictionary = dictionary
+    }
+
+    public func candidates(for request: CandidateRequest) -> [Candidate] {
+        var results: [Candidate] = []
+        for var learned in learningStore.candidates(for: request.key) {
+            learned.score = ScoreModel.learnedLogProbability(
+                decayedCount: learned.score,
+                logMaxWeight: dictionary.logMaxWeight,
+                logTotalWeight: request.logTotalWeight
+            )
+            results.append(learned)
+        }
+        return results
+    }
+}
+
+/// Lexicon words whose full spelling covers the entire key.
+public struct LexiconWholeKeySource: WholeKeyCandidateSource {
+    let dictionary: DictTrie
+
+    public init(dictionary: DictTrie) {
+        self.dictionary = dictionary
+    }
+
+    public func candidates(for request: CandidateRequest) -> [Candidate] {
+        var results: [Candidate] = []
+        for entry in dictionary.exact(request.key, limit: 240) {
+            // One word covering the whole key, spelled out in full: the single
+            // most likely story there is. No length bonus is needed — a rival
+            // multi-word stitch pays the segment cost for each extra word.
+            results.append(
+                Candidate(
+                    text: entry.text,
+                    pinyin: entry.displayPinyin,
+                    source: .system,
+                    consumed: request.key.count,
+                    score: ScoreModel.segmentLogProbability(
+                        weight: entry.weight,
+                        logTotalWeight: request.logTotalWeight,
+                        form: .full
+                    ) + ScoreModel.contextPromotion(
+                        weight: entry.weight,
+                        logTotalWeight: request.logTotalWeight,
+                        conditional: request.contextConditional(entry.text)
+                    )
+                )
+            )
+        }
+        return results
+    }
+}

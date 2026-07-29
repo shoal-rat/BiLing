@@ -36,6 +36,24 @@ public final class PinyinEngine: @unchecked Sendable {
     private let english = EnglishLexicon.shared
     private let toleranceGenerator: ToleranceGenerator
 
+    /// Whole-key candidate producers, in the exact order their results are
+    /// offered to the merge. Order is behaviour: the merge keeps the higher
+    /// score, and on an exact score tie the FIRST candidate added wins, so
+    /// this array is a ranking policy as much as a feature list.
+    ///
+    /// The sentence lattice is deliberately not in this array (see
+    /// `WholeKeyCandidateSource`): it yields multi-segment paths under
+    /// harvest-class admission rules, not whole-key candidates, and its
+    /// results enter the merge between `sourcesBeforeSentence` and the rest —
+    /// exactly where the inlined code added them.
+    private let sources: [any WholeKeyCandidateSource]
+
+    /// How many leading `sources` run before the sentence lattice. The split
+    /// preserves the historical insertion order (learned, lexicon, sentence,
+    /// abbreviation, name, Latin, literal), which tie-breaking makes
+    /// observable.
+    private static let sourcesBeforeSentence = 2
+
     /// Words of each sentence path in the most recent result, keyed by the
     /// candidate text shown to the user. `recordSelection` needs the word
     /// sequence back to teach the store which words follow which; carrying it
@@ -72,6 +90,10 @@ public final class PinyinEngine: @unchecked Sendable {
         let inventory = dictionary.syllables.isEmpty ? SyllableInventory.standard.syllables : dictionary.syllables
         self.inventory = SyllableInventory(inventory)
         self.toleranceGenerator = ToleranceGenerator(inventory: self.inventory)
+        self.sources = [
+            LearnedCandidateSource(learningStore: learningStore, dictionary: dictionary),
+            LexiconWholeKeySource(dictionary: dictionary),
+        ]
     }
 
     public static func production() throws -> PinyinEngine {
@@ -112,37 +134,15 @@ public final class PinyinEngine: @unchecked Sendable {
         }
 
         let logTotal = dictionary.logTotalWeight
-        for var learned in learningStore.candidates(for: key) {
-            learned.score = ScoreModel.learnedLogProbability(
-                decayedCount: learned.score,
-                logMaxWeight: dictionary.logMaxWeight,
-                logTotalWeight: logTotal
-            )
-            add(learned)
-        }
-
-        let exactEntries = dictionary.exact(key, limit: 240)
-        for entry in exactEntries {
-            // One word covering the whole key, spelled out in full: the single
-            // most likely story there is. No length bonus is needed — a rival
-            // multi-word stitch pays the segment cost for each extra word.
-            add(
-                Candidate(
-                    text: entry.text,
-                    pinyin: entry.displayPinyin,
-                    source: .system,
-                    consumed: key.count,
-                    score: ScoreModel.segmentLogProbability(
-                        weight: entry.weight,
-                        logTotalWeight: logTotal,
-                        form: .full
-                    ) + ScoreModel.contextPromotion(
-                        weight: entry.weight,
-                        logTotalWeight: logTotal,
-                        conditional: contextConditional(entry.text)
-                    )
-                )
-            )
+        let request = CandidateRequest(
+            rawInput: rawInput,
+            key: key,
+            mode: mode,
+            logTotalWeight: logTotal,
+            contextConditional: contextConditional
+        )
+        for source in sources.prefix(Self.sourcesBeforeSentence) {
+            for candidate in source.candidates(for: request) { add(candidate) }
         }
 
         // Tolerance is read once per keystroke so a preference flip cannot
