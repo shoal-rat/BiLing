@@ -95,6 +95,16 @@ public final class PinyinEngine: @unchecked Sendable {
         sentenceWordsByText.removeAll(keepingCapacity: true)
         sentenceWordsLock.unlock()
 
+        // The last committed word, when one directly precedes the caret. Every
+        // candidate for this buffer is its continuation, so it conditions the
+        // first transition of the lattice and promotes whole-key words the
+        // corpus has seen follow it. Nil context leaves every score untouched.
+        let contextTail = contextTailWord(context)
+        let contextConditional: (String) -> Double = { [dictionary] text in
+            guard let contextTail else { return 0 }
+            return dictionary.transition(from: contextTail, to: text)
+        }
+
         var merged: [String: Candidate] = [:]
         func add(_ candidate: Candidate) {
             if let existing = merged[candidate.text], existing.score >= candidate.score { return }
@@ -126,6 +136,10 @@ public final class PinyinEngine: @unchecked Sendable {
                         weight: entry.weight,
                         logTotalWeight: logTotal,
                         form: .full
+                    ) + ScoreModel.contextPromotion(
+                        weight: entry.weight,
+                        logTotalWeight: logTotal,
+                        conditional: contextConditional(entry.text)
                     )
                 )
             )
@@ -137,7 +151,12 @@ public final class PinyinEngine: @unchecked Sendable {
         // Tolerant paths compete for n-best slots; without more room they
         // evict deep exact paths and cost coverage on long input (measured:
         // five dev rows fell out of the list at the shared 80).
-        let harvest = sentenceCandidates(key: key, limit: options.isActive ? 100 : 80, options: options)
+        let harvest = sentenceCandidates(
+            key: key,
+            limit: options.isActive ? 100 : 80,
+            options: options,
+            contextTail: contextTail
+        )
         for sentence in harvest.exact { add(sentence) }
 
         // Whole-buffer variants: one deviation applied to the entire key, then
@@ -191,6 +210,10 @@ public final class PinyinEngine: @unchecked Sendable {
                             weight: entry.weight,
                             logTotalWeight: logTotal,
                             form: .initials
+                        ) + ScoreModel.contextPromotion(
+                            weight: entry.weight,
+                            logTotalWeight: logTotal,
+                            conditional: contextConditional(entry.text)
                         )
                     )
                 )
@@ -206,6 +229,10 @@ public final class PinyinEngine: @unchecked Sendable {
                             weight: entry.weight,
                             logTotalWeight: logTotal,
                             form: .mixed
+                        ) + ScoreModel.contextPromotion(
+                            weight: entry.weight,
+                            logTotalWeight: logTotal,
+                            conditional: contextConditional(entry.text)
                         )
                     )
                 )
@@ -351,7 +378,8 @@ public final class PinyinEngine: @unchecked Sendable {
     private func sentenceCandidates(
         key: String,
         limit: Int,
-        options: ToleranceOptions
+        options: ToleranceOptions,
+        contextTail: String? = nil
     ) -> SentenceHarvest {
         let logTotal = dictionary.logTotalWeight
         let characters = Array(key)
@@ -589,13 +617,23 @@ public final class PinyinEngine: @unchecked Sendable {
         let lexiconTransition: (String, String) -> Double = { [dictionary] previous, next in
             dictionary.transition(from: previous, to: next)
         }
-        let transition: (String, String) -> Double
+        var transition: (String, String) -> Double
         if let blend = learningStore.transitionModel() {
             transition = { previous, next in
                 blend(previous, next, lexiconTransition(previous, next))
             }
         } else {
             transition = lexiconTransition
+        }
+        // The decoder's start marker appears in no bigram table, so every
+        // first word today falls back to its unigram. With committed text the
+        // true previous word is known — substituting it can only raise the
+        // scores of first words the corpus has seen follow it.
+        if let contextTail {
+            let inner = transition
+            transition = { previous, next in
+                inner(previous == DictTrie.sentenceStart ? contextTail : previous, next)
+            }
         }
 
         let paths = LatticeDecoder.nBest(
@@ -644,6 +682,27 @@ public final class PinyinEngine: @unchecked Sendable {
             }
         }
         return harvest
+    }
+
+    /// The lexicon word ending the committed context, if the caret directly
+    /// follows one — longest suffix first, mirroring how the bigram corpus
+    /// was tokenised. Anything but a Han character before the caret
+    /// (punctuation, Latin, nothing) means no usable transition evidence.
+    private func contextTailWord(_ context: String) -> String? {
+        guard !context.isEmpty else { return nil }
+        var run: [Character] = []
+        for character in context.reversed() {
+            guard character.unicodeScalars.allSatisfy({ $0.properties.isIdeographic }) else { break }
+            run.append(character)
+            if run.count == 4 { break }
+        }
+        guard !run.isEmpty else { return nil }
+        let tail = String(run.reversed())
+        for length in stride(from: tail.count, through: 1, by: -1) {
+            let word = String(tail.suffix(length))
+            if dictionary.unigramWeight(of: word) > 1 { return word }
+        }
+        return nil
     }
 
     /// Whole-buffer personal names: a surname followed by one or two

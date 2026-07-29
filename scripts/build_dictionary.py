@@ -99,6 +99,7 @@ def prepare_database(path: Path) -> sqlite3.Connection:
         -- (code, weight) lets `WHERE code = ? ORDER BY weight DESC` run as a
         -- backwards index scan with no sort step.
         CREATE INDEX entries_abbrev ON entries(abbrev, weight);
+        CREATE INDEX IF NOT EXISTS entries_text ON entries(text);
         CREATE INDEX entries_mixed ON entries(mixed, weight) WHERE mixed <> '';
         CREATE TABLE metadata (
             name TEXT PRIMARY KEY,

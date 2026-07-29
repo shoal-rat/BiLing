@@ -189,6 +189,32 @@ public enum ScoreModel {
         return log(max(blended, Double.leastNormalMagnitude)) + form.logProbability
     }
 
+    /// Promotion-only context refinement for a candidate that directly
+    /// follows committed text.
+    ///
+    /// The lattice's first word implicitly conditions on a sentence-start
+    /// marker no bigram table contains; when the user has just committed
+    /// text, the marker is wrong — the true previous word is known. This is
+    /// the score adjustment from substituting it into the same
+    /// Jelinek-Mercer blend the decoder uses, expressed as a delta so that a
+    /// pair the corpus never saw changes nothing at all:
+    ///
+    ///     log((1−λ)·uni + λ·cond) − log((1−λ)·uni) = log1p(λ/(1−λ) · cond/uni)
+    ///
+    /// Never negative: committed context can promote what agrees with it,
+    /// but silence about a word is not evidence against it.
+    public static func contextPromotion(
+        weight: Double,
+        logTotalWeight: Double,
+        conditional: Double
+    ) -> Double {
+        guard conditional > 0 else { return 0 }
+        let unigram = exp(wordLogProbability(weight: weight, logTotalWeight: logTotalWeight))
+        let ratio = transitionWeight / (1 - transitionWeight)
+            * conditional / max(unigram, Double.leastNormalMagnitude)
+        return log1p(ratio)
+    }
+
     /// Cost of one segment written in `form`.
     public static func segmentLogProbability(
         weight: Double,
