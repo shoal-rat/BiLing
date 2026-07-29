@@ -72,7 +72,39 @@ public final class DictTrie: @unchecked Sendable {
             throw BackboneError.lexiconOpenFailed
         }
         database = handle
-        entryCount = Self.scalarInt(handle, sql: "SELECT COUNT(*) FROM entries;")
+        // Validate before reading anything else. SQLite opens lazily, so a
+        // Git LFS pointer file (a checkout without `git lfs pull`) or a
+        // truncated copy "opens" fine and would otherwise surface as an
+        // engine with zero entries that silently returns nothing. Probing the
+        // entries table forces the first real read and turns that state into
+        // a diagnosis.
+        var probe: OpaquePointer?
+        let prepared = sqlite3_prepare_v2(
+            handle,
+            "SELECT COUNT(*) FROM entries;",
+            -1,
+            &probe,
+            nil
+        )
+        guard prepared == SQLITE_OK, probe != nil else {
+            let detail = String(cString: sqlite3_errmsg(handle))
+            sqlite3_finalize(probe)
+            sqlite3_close(handle)
+            database = nil
+            throw BackboneError.lexiconInvalid(path: databaseURL.path, detail: detail)
+        }
+        let stepped = sqlite3_step(probe)
+        let probedCount = Int(sqlite3_column_int64(probe, 0))
+        sqlite3_finalize(probe)
+        guard stepped == SQLITE_ROW, probedCount > 0 else {
+            let detail = stepped == SQLITE_ROW
+                ? "the entries table is empty"
+                : String(cString: sqlite3_errmsg(handle))
+            sqlite3_close(handle)
+            database = nil
+            throw BackboneError.lexiconInvalid(path: databaseURL.path, detail: detail)
+        }
+        entryCount = probedCount
         if let stored = Self.scalarText(
             handle,
             sql: "SELECT value FROM metadata WHERE name = 'log_total_weight';"
@@ -135,21 +167,52 @@ public final class DictTrie: @unchecked Sendable {
         }
     }
 
-    public static func bundled() throws -> DictTrie {
+    /// Environment variable that redirects `bundled()` to an absolute lexicon
+    /// path. CI uses it to run against the checked-in fixture, because the
+    /// real lexicon is a Git LFS object the runner never downloads.
+    public static let lexiconPathVariable = "BILING_LEXICON_PATH"
+
+    /// The database `bundled()` will open, in resolution order, without
+    /// opening anything. Exposed so tests can decide up front whether the
+    /// full production lexicon is present — an LFS checkout without
+    /// `git lfs pull` leaves a small ASCII pointer file at the bundle path.
+    public static func resolvedLexiconURL() -> URL? {
+        if let override = ProcessInfo.processInfo.environment[lexiconPathVariable] {
+            return URL(fileURLWithPath: override)
+        }
         if let packagedBundleURL = Bundle.main.resourceURL?
             .appendingPathComponent("BiLing_BackboneEngine.bundle"),
            let packagedBundle = Bundle(url: packagedBundleURL),
            let url = packagedBundle.url(forResource: "lexicon", withExtension: "sqlite3") {
-            return try DictTrie(databaseURL: url)
+            return url
         }
         if let url = Bundle.module.url(forResource: "lexicon", withExtension: "sqlite3") {
-            return try DictTrie(databaseURL: url)
+            return url
         }
         // Keep the text loader for development migrations and small fixtures.
         if let url = Bundle.module.url(forResource: "lexicon", withExtension: "tsv") {
-            return try DictTrie(contentsOf: url)
+            return url
         }
-        throw BackboneError.lexiconMissing
+        return nil
+    }
+
+    public static func bundled() throws -> DictTrie {
+        if let override = ProcessInfo.processInfo.environment[lexiconPathVariable],
+           !FileManager.default.isReadableFile(atPath: override) {
+            // A set-but-wrong override must stop the process rather than fall
+            // through to a bundle that may itself be an LFS pointer; silently
+            // loading a different lexicon than the caller asked for is worse
+            // than crashing.
+            fatalError(
+                "\(lexiconPathVariable) is set to '\(override)', but no readable file exists there. "
+                    + "Unset the variable to use the bundled lexicon, or point it at a database built by "
+                    + "scripts/build_dictionary.py or scripts/build_fixture_lexicon.py."
+            )
+        }
+        guard let url = resolvedLexiconURL() else {
+            throw BackboneError.lexiconMissing
+        }
+        return try DictTrie(contentsOf: url)
     }
 
     public convenience init(contentsOf url: URL) throws {
@@ -534,6 +597,7 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 public enum BackboneError: LocalizedError {
     case lexiconMissing
     case lexiconOpenFailed
+    case lexiconInvalid(path: String, detail: String)
 
     public var errorDescription: String? {
         switch self {
@@ -541,6 +605,11 @@ public enum BackboneError: LocalizedError {
             return "The bundled pinyin lexicon is missing."
         case .lexiconOpenFailed:
             return "The bundled pinyin lexicon could not be opened."
+        case .lexiconInvalid(let path, let detail):
+            return "The pinyin lexicon at \(path) is not a usable database (\(detail)). "
+                + "If this is a Git LFS checkout, run `git lfs pull`; otherwise set "
+                + "\(DictTrie.lexiconPathVariable) to a lexicon built by scripts/build_dictionary.py "
+                + "or scripts/build_fixture_lexicon.py."
         }
     }
 }
