@@ -3,3 +3,6 @@
 *.icns binary
 *.png binary
 *.dict.yaml linguist-language=YAML
+# The CI fixture must stay a plain git blob: CI checks out with LFS disabled
+# and reads it directly (see .github/workflows/ci.yml).
+Tests/Fixtures/fixture-lexicon.sqlite3 -filter -diff -merge -text
