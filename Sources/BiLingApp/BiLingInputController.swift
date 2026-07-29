@@ -214,11 +214,11 @@ final class BiLingInputController: IMKInputController, @unchecked Sendable {
         }
 
         // When the deterministic ranking is already decided, asking the model
-        // to confirm it burns a wakeup and ~25 ms of GPU for nothing; the
-        // margin threshold is calibrated in Docs/results/gate-calibration.txt.
-        guard ScoreModel.shouldInvokeModel(
-            topScore: candidates.first?.score ?? 0,
-            secondScore: candidates.count > 1 ? candidates[1].score : nil
+        // to confirm it burns a wakeup and ~25 ms of GPU for nothing. The
+        // calibrated gate estimates P(top-1 wrong) from the shape of the
+        // whole list; without its file this is the old margin rule.
+        guard ConfidenceGate.shouldInvokeModel(
+            sortedScores: candidates.map(\.score)
         ) else { return }
 
         let request = RankRequest(

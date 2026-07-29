@@ -11,3 +11,23 @@ margin   invoked      top-1   top-5   MRR
 Chosen: 3.0 — eliminates 20.2% of model invocations with no measured
 top-1 cost (MRR -0.001, within run-to-run noise). Below 2.0 the gate
 starts refusing calls the model would have won.
+
+== v2: learned confidence gate (2026-07-29) ==
+Model: logistic P(top-1 wrong) over [margin, entropy_top8, spread_top5,
+log_candidates], trained by Tools/DataPipeline/distill_ranker.py on 3,973
+teacher-dump lists, holdout 421. Holdout Brier 0.1430 vs base-rate 0.2313.
+
+Dev sweep (derived-dev.tsv, --no-context, full system, n=1626):
+  margin rule (3.0 nats):    top1 37.5  top5 46.8  invoked 76.1%
+  learned, threshold 0.15:   top1 37.6  top5 46.9  invoked 76.6%
+  learned, threshold 0.25:   top1 37.5  top5 46.7  invoked 71.4%
+  learned, threshold 0.35:   top1 37.5  top5 46.7  invoked 66.0%   <- shipped
+At the shipped threshold the learned gate matches the margin rule's accuracy
+while eliminating a further 10.1 points of invocations (76.1% -> 66.0%).
+Commands: BILING_GATE_THRESHOLD=<t> [BILING_GATE_DISABLE=1]
+  .build/release/biling-cli --evaluate Tests/Corpus/derived-dev.tsv --no-context
+
+Distilled 12->16->1 MLP ranker: REFUSED at every (alpha, T) grid point —
+best holdout gain +0.24pt = one list, inside 1.96 sigma. The 12-feature
+bottleneck cannot carry the teacher's text-level knowledge. Runtime ships
+dormant (DistilledRanker.swift); trainer refuses insignificant exports.

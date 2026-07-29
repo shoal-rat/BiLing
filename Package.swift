@@ -22,7 +22,10 @@ let package = Package(
         .target(
             name: "BackboneEngine",
             dependencies: ["PinyinLattice", "CSQLite"],
-            resources: [.copy("Resources/lexicon.sqlite3")]
+            resources: [
+                .copy("Resources/lexicon.sqlite3"),
+                .copy("Resources/confidence-gate.json"),
+            ]
         ),
         .target(name: "IPCProtocol"),
         .target(
