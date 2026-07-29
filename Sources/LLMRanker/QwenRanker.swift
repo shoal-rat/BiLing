@@ -7,6 +7,7 @@ public enum RankerError: LocalizedError {
     case modelMissing(URL)
     case loadFailed(String)
     case scoreFailed(String)
+    case permanentlyDisabled(String)
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ public enum RankerError: LocalizedError {
             "Could not load Qwen: \(detail)"
         case .scoreFailed(let detail):
             "Qwen scoring failed: \(detail)"
+        case .permanentlyDisabled(let detail):
+            "Qwen 已停用（本次会话）: \(detail)"
         }
     }
 }
@@ -38,18 +41,39 @@ public final class QwenRanker: @unchecked Sendable {
         let generation: UInt64
     }
 
+    /// C bridge result codes (mirrors BILING_LLAMA_* in BiLingLlama.h).
+    private static let resultCancelled: Int32 = -2
+    private static let resultTimedOut: Int32 = -8
+
     private let handle: LlamaHandle
     private let queue = DispatchQueue(label: "com.biling.qwen-ranker", qos: .userInitiated)
     private let stateLock = NSLock()
     private var pending: Set<RequestKey> = []
     private var cancelled: Set<RequestKey> = []
     private var active: RequestKey?
+    private let timeoutMilliseconds: Int
     public let modelDescription: String
 
-    public init(modelURL: URL, adapterURL: URL? = nil, adapterScale: Float = 1.0) throws {
+    /// Wall-clock budget for one scoring call, from BILING_MODEL_TIMEOUT_MS
+    /// (milliseconds, > 0) with a 2500 ms default.
+    public static func defaultTimeoutMilliseconds(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Int {
+        guard let raw = environment["BILING_MODEL_TIMEOUT_MS"],
+              let value = Int(raw), value > 0 else { return 2_500 }
+        return value
+    }
+
+    public init(
+        modelURL: URL,
+        adapterURL: URL? = nil,
+        adapterScale: Float = 1.0,
+        timeoutMilliseconds: Int? = nil
+    ) throws {
         guard FileManager.default.fileExists(atPath: modelURL.path) else {
             throw RankerError.modelMissing(modelURL)
         }
+        self.timeoutMilliseconds = timeoutMilliseconds ?? Self.defaultTimeoutMilliseconds()
         var error = [CChar](repeating: 0, count: 512)
         guard let loaded = biling_llama_open(
             modelURL.path,
@@ -64,23 +88,47 @@ public final class QwenRanker: @unchecked Sendable {
         modelDescription = String(cString: biling_llama_description(loaded))
     }
 
-    public func rank(_ request: RankRequest) async throws -> RankReply {
+    /// Scores the request's candidates against its committed context.
+    ///
+    /// Returns nil when the wall-clock budget expired: the caller ships the
+    /// deterministic ranking as-is. Throws CancellationError when the request
+    /// was superseded by a newer generation (via `cancel` or by a newer
+    /// `rank` call for the same client), and RankerError for real failures.
+    public func rank(_ request: RankRequest) async throws -> RankReply? {
         let requestKey = RequestKey(
             clientID: request.clientID,
             generation: request.generation
         )
-        _ = stateLock.withLock {
+        stateLock.withLock {
             pending.insert(requestKey)
+            // A newer generation supersedes every older request of the same
+            // client: stale work must stop burning energy, not run to
+            // completion. The C cancel is signalled under the lock so it can
+            // never race the next request's reset (which also happens under
+            // the lock).
+            for key in pending
+            where key.clientID == requestKey.clientID && key.generation < requestKey.generation {
+                cancelled.insert(key)
+            }
+            if let current = active,
+               current.clientID == requestKey.clientID,
+               current.generation < requestKey.generation {
+                biling_llama_cancel(handle.rawValue)
+            }
         }
         return try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<RankReply, Error>) in
-            queue.async { [self, handle, modelDescription] in
+            (continuation: CheckedContinuation<RankReply?, Error>) in
+            queue.async { [self, handle, modelDescription, timeoutMilliseconds] in
                 let cancelledBeforeStart = stateLock.withLock {
                     pending.remove(requestKey)
                     if cancelled.remove(requestKey) != nil {
                         return true
                     }
                     active = requestKey
+                    // Reset under the same lock that `cancel` signals under,
+                    // so a cancel aimed at the previous request can never
+                    // leak into this one.
+                    biling_llama_reset_cancel(handle.rawValue)
                     return false
                 }
                 guard !cancelledBeforeStart else {
@@ -97,7 +145,6 @@ public final class QwenRanker: @unchecked Sendable {
                 }
                 let clock = ContinuousClock()
                 let start = clock.now
-                biling_llama_reset_cancel(handle.rawValue)
                 // The first candidate page is the only latency-critical surface. Sixteen
                 // paths cover the first page plus blending headroom; the KV prefix cache
                 // and vectorized softmax keep the warm request well under 50 ms.
@@ -111,13 +158,25 @@ public final class QwenRanker: @unchecked Sendable {
                             contextPointer,
                             candidatePointers,
                             Int32(capped.count),
+                            timeoutMilliseconds,
                             &values,
                             &error,
                             error.count
                         )
                     }
                 }
-                guard result == 0 else {
+                switch result {
+                case 0:
+                    break
+                case Self.resultCancelled:
+                    continuation.resume(throwing: CancellationError())
+                    return
+                case Self.resultTimedOut:
+                    // The deterministic ranking ships as-is; the model simply
+                    // has no opinion this keystroke.
+                    continuation.resume(returning: nil)
+                    return
+                default:
                     continuation.resume(throwing: RankerError.scoreFailed(String(cString: error)))
                     return
                 }
@@ -145,16 +204,21 @@ public final class QwenRanker: @unchecked Sendable {
         }
     }
 
+    /// Cancels the given request and anything older from the same client.
+    /// Signalling the C flag happens under the state lock, paired with the
+    /// worker's reset-under-lock, so a late cancel can never abort a newer
+    /// request that has already started.
     public func cancel(clientID: UUID, generation: UInt64) {
-        let requestKey = RequestKey(clientID: clientID, generation: generation)
-        let shouldSignal = stateLock.withLock {
-            if pending.contains(requestKey) {
-                cancelled.insert(requestKey)
+        stateLock.withLock {
+            for key in pending
+            where key.clientID == clientID && key.generation <= generation {
+                cancelled.insert(key)
             }
-            return active == requestKey
-        }
-        if shouldSignal {
-            biling_llama_cancel(handle.rawValue)
+            if let current = active,
+               current.clientID == clientID,
+               current.generation <= generation {
+                biling_llama_cancel(handle.rawValue)
+            }
         }
     }
 }

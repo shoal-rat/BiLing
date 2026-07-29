@@ -82,7 +82,7 @@ enum ReplayBenchmark {
                         committedContext: context,
                         candidates: candidates.prefix(30).map(\.text)
                     )
-                    if let reply = try? Evaluate.runBlocking({ try await ranker.rank(request) }) {
+                    if let reply = (try? Evaluate.runBlocking({ try await ranker.rank(request) })) ?? nil {
                         modelCalls += 1
                         candidates = CandidateBlender.blend(
                             candidates,

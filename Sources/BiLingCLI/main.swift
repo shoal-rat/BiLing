@@ -208,7 +208,10 @@ do {
             adapterURL: adapterURL,
             adapterScale: ModelLocator.adapterScale()
         )
-        ranked = try await ranker.rank(request)
+        guard let reply = try await ranker.rank(request) else {
+            throw RankerError.scoreFailed("Qwen 超时（BILING_MODEL_TIMEOUT_MS 可调整预算）")
+        }
+        ranked = reply
     }
     if let error = ranked.error {
         throw RankerError.scoreFailed(error)

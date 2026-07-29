@@ -83,6 +83,10 @@ let package = Package(
             name: "InputSessionCoreTests",
             dependencies: ["InputSessionCore"]
         ),
+        .testTarget(
+            name: "LLMRankerTests",
+            dependencies: ["LLMRanker", "IPCProtocol"]
+        ),
     ],
     swiftLanguageModes: [.v5]
 )
