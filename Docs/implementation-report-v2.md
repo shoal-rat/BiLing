@@ -180,14 +180,19 @@ keeps tolerant admission honest.
 | Baseline, lexicon only | 37.5% | 48.7% | 58.9% | 0.428 |
 | **Now, lexicon only** | **37.8%** | **49.2%** | **59.9%** | **0.432** |
 | Baseline, full system (cold) | 44.2% | 52.5% | 58.9% | 0.477 |
-| **Now, full system, cold** | **43.6%** | **53.0%** | **59.9%** | **0.478** |
-| **Now, full system, with context** | **46.4%** | **54.1%** | **59.8%** | **0.499** |
+| **Now, full system, cold** | **43.2%** | **53.0%** | **59.9%** | **0.475** |
+| **Now, full system, with context** | **46.1%** | **54.1%** | **59.8%** | **0.496** |
 
-The cold full-system figure is 0.6 points under baseline while the model
-now runs on 62.5% of items instead of 100%/73.5% — and the baseline's extra
-0.6 was earned by the old bridge's subtly wrong scoring (first token
-skipped), which is not a trade we keep. With context — the regime the
-round was aimed at — the system sets its new best.
+The cold figure sits a point under baseline for three deliberate trades:
+the model runs on 62.5% of items instead of 100%/73.5%; the baseline's
+edge partly came from the old bridge's subtly wrong scoring (first token
+skipped), which was not kept; and the cold blend ceiling stops at 1.0
+rather than the sweep's 39.0-point optimum at 1.2, because above 1.0 the
+model's style preference (辣鸡 over 垃圾) starts outvoting corpus
+frequency — the release gate caught exactly that, and the installer's
+rollback restored the previous build in production. With context — the
+regime this round was aimed at — the system sets its new best, and the
+context ceiling keeps the full swept value.
 
 Modest and honest: the headline gains of this round are capability (names,
 compounds, typo/fuzzy), energy (26% fewer model calls at equal accuracy),

@@ -358,21 +358,25 @@ public enum ScoreModel {
         candidateLength: Int
     ) -> Double {
         let evidence = Double(max(0, candidateLength - 1)) + (hasContext ? 2 : 0)
-        return Self.languageModelScale * evidence / (evidence + 1)
+        return Self.languageModelScale(hasContext: hasContext) * evidence / (evidence + 1)
     }
 
-    /// Ceiling of the model's vote. Tied to the bridge's score semantics:
-    /// the merged-tokenization fix made scores price the whole candidate
-    /// (the old path skipped the first token), which both shrank their
-    /// scale and made them more informative — the sweep moved from 0.55 to
-    /// a plateau at 1.2 (dev cold 37.5→39.0, contrast 79.1→83.7; the low
-    /// end of the plateau is shipped). BILING_LM_WEIGHT overrides for
-    /// calibration runs only.
-    static let languageModelScale: Double = {
+    /// Ceiling of the model's vote, per regime. Tied to the bridge's score
+    /// semantics: the merged-tokenization fix made scores price the whole
+    /// candidate (the old path skipped the first token), moving the swept
+    /// plateau from 0.55 to ~1.2. But the aggregate sweep hides a failure
+    /// mode the release gate caught: cold, above 1.0, the model's *style*
+    /// preference (辣鸡 over 垃圾) starts outvoting corpus frequency — the
+    /// exact bias the promote-only blend exists to contain. So the cold
+    /// ceiling stops at 1.0 (dev 38.5 vs 39.0, a half point paid for
+    /// robustness) while context — where the model judges real conditional
+    /// evidence, the thing it is actually good at — gets the full 1.2.
+    /// BILING_LM_WEIGHT overrides both, for calibration runs only.
+    static func languageModelScale(hasContext: Bool) -> Double {
         if let raw = ProcessInfo.processInfo.environment["BILING_LM_WEIGHT"],
            let value = Double(raw), value > 0, value < 2 {
             return value
         }
-        return 1.2
-    }()
+        return hasContext ? 1.2 : 1.0
+    }
 }

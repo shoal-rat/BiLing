@@ -12,8 +12,10 @@ reset and its state on this machine is part of the system under test.
 
 Numbers below are after re-sweeping the model blend weight for the
 bridge's corrected score semantics (the merged-tokenization fix scores the
-whole candidate; the old path skipped its first token — the constant moved
-0.55 -> 1.2, ScoreModel.languageModelScale).
+whole candidate; the old path skipped its first token — the ceiling moved
+0.55 -> 1.0 cold / 1.2 with context, ScoreModel.languageModelScale; the
+split exists because above 1.0 cold the model's style bias outvotes corpus
+frequency, caught by the release gate).
 
 1) General text: 150 items sampled from the held-out derived test set
    (first 150 rows with non-empty context and a-z-typeable keys).

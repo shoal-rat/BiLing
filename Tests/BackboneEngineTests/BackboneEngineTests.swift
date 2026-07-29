@@ -102,7 +102,10 @@ private func makeEngine() throws -> PinyinEngine {
     let cold = ScoreModel.languageModelWeight(hasContext: false, candidateLength: 4)
     let warm = ScoreModel.languageModelWeight(hasContext: true, candidateLength: 4)
     let longer = ScoreModel.languageModelWeight(hasContext: true, candidateLength: 9)
-    #expect(cold > 0 && cold < warm && warm < longer && longer < ScoreModel.languageModelScale)
+    #expect(
+        cold > 0 && cold < warm && warm < longer
+            && longer < ScoreModel.languageModelScale(hasContext: true)
+    )
 }
 
 @Test func theModelMayPromoteButNeverArbitrarilyDemote() {
