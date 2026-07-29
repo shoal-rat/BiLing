@@ -66,6 +66,104 @@ decoder is exact only under its state representation, and networking is
 designed-out rather than technically impossible (the processes are not
 sandboxed).
 
+**Learning store v2** (Phase 6). The v1 dedup constraint
+`UNIQUE(pinyin_hash, text_cipher)` could never fire — AES-GCM ciphertext is
+randomised — so uniqueness was an O(rows) decrypt-and-compare scan. v2 indexes
+keyed HMACs of the plaintext: real constraint, one indexed statement per
+update, nothing readable without the Keychain key. Recency became three EMAs
+(τ = 50/500/5000 selections) whose mixture forgets like a power law; committed
+sentences teach word-transition evidence that interpolates into the lexicon
+bigram model with weight earned from evidence (μ = n/(n+40), capped 0.7);
+an encrypted event log feeds offline fitting; retention caps, per-item
+deletion, full decrypted export (`--export-learning`). One-transaction
+migration recomputes the pinyin hash under its new domain prefix — without
+that, every migrated row would have been silently unreachable (caught by the
+migration reachability test).
+
+**Deterministic context** (Phase 3/16 follow-through). The engine accepted a
+context parameter and never read it — measured bit-identical with and without
+context; all context value was bought from Qwen at 25–40 ms. Now the last
+committed word substitutes for the decoder's sentence-start marker and adds a
+promotion-only delta to whole-key candidates, in the same Jelinek-Mercer
+blend the lattice already uses. Contrast corpus, engine only: 41.9% → 48.8%
+at ~1 ms. One honest wrinkle, pinned by test: under the finite state cap the
+promotion is per-path, not list-level — a promoted rival can evict the path a
+tail candidate scored through.
+
+**Calibrated dual-mode gate** (Phase 8). Logistic P(top-1 wrong) over
+list-shape features replaces the fixed 3.0-nat margin — fit separately for
+cold and context-shaped lists after measuring that the cold fit under-fires
+on context lists (7 contrast points lost to wrong skips). At the shipped
+thresholds: cold accuracy equal to the margin rule at 66% of its invocations;
+context accuracy equal at 74%. Holdout Brier 0.143/0.145 vs 0.231/0.227 base.
+
+**Distilled reranker: infrastructure only** (Phase 7). A 12→16→1 MLP trained
+against Qwen's per-candidate log-probabilities (4,394 cold + 4,435 context
+teacher lists) lands within noise of the deterministic baseline at every
+(α, T) grid point — the 12-feature bottleneck cannot carry the teacher's
+text-level knowledge. The trainer refuses statistically insignificant exports
+(> 1.96σ required); the Swift runtime (loader, forward pass, promotion-only
+blend) ships dormant and tested. Plain Swift, not Core ML: at ~500 parameters
+the arithmetic is ~1 µs, below Core ML's dispatch overhead.
+
+**Qwen bridge correctness** (Phase 9). C11 `_Atomic` cancellation checked in
+llama.cpp's abort callback and between decode waves, with a fixed
+signal-vs-reset race; newer generations supersede older requests
+automatically. Candidates are tokenized merged with their context and only
+the divergent suffix is priced, with partial KV reuse on boundary merges.
+Wall-clock budget (default 2500 ms) returns nil so the deterministic ranking
+ships; model-load failure disables the ranker for the session, logged once.
+Twelve tests skip cleanly when the GGUF is absent.
+
+**Candidate stability + context isolation** (Phases 10–11). A pure
+`CandidateStabilityController`: no reordering after manual navigation,
+adjacent-swap hysteresis, re-promotion damping — calibrated at 0.1 nats after
+measuring that the spec's suggested 0.5 suppressed context *corrections*
+(87.5% → 83.3%); shipped setting keeps accuracy parity while suppressing the
+purely cosmetic flip. The audit found and fixed a real leak: committed
+context survived app switches, so text typed in one app influenced rankings
+in another. Replies are now structurally bound to their (generation, buffer)
+stamp.
+
+**Entity lexicon beyond people** (Phase 3). jieba ns/nt tagging over 300K
+news sentences: 3,861 typed entities recorded, 682 previously-unreachable
+compounds (county-level places, foreign nations) added as entries, filtered
+against the lexicon's own character inventory because the Leipzig crawl
+mixes traditional script.
+
+**Data governance and split rigour** (Phases 12–13). Nine manifests with
+verified licences (Apache-2.0, CC-BY-4.0 via GitHub API; Leipzig CC BY via
+an archived snapshot of terms blocked behind an anti-bot gate — recorded as
+such). A source-separated test set (zho-cn_web_2015, disjoint from every
+training file) reads 13.1% engine-only / 17.5% full — the results file says
+plainly that this conflates leakage removal with genuine domain shift
+(coverage collapses to 26% at candidate generation, which leakage cannot
+explain).
+
+**Config, typing channel, metrics** (Phases 4, 14, 18). A versioned
+per-field-validated config file for the swept expert knobs (gate thresholds,
+fan-ins, model timeout, opt-in-only diagnostics); TypingForm priors behind a
+guardrailed loadable channel with a fit script that accepts only real
+event-log exports — fitting from the derived corpora would be circular, and
+the script refuses and says why; --evaluate now reports first-page coverage,
+average selected position, and keystrokes-per-character.
+
+**CI without LFS, transactional installer** (Phase 17). A 69 KB fixture
+lexicon with the exact production schema (committed as a plain git blob),
+`BILING_LEXICON_PATH` override, availability-gated golden suites that read
+an LFS pointer file as absent, a workflow that never fetches LFS objects,
+and an installer with trap-based rollback (previous bundle restored,
+launchd re-bootstrapped, input source re-registered) exercised by
+`scripts/test_installer_rollback.sh` against a temp prefix.
+
+**Apple comparison, with context** (Phase 16). The CGEvent harness gained
+--context: the committed context is seeded into the text view, caret at the
+end, and only text after the seed is read. On 150 held-out general-text
+items both systems saw identically: BiLing 76.0% vs Apple 77.3%, 95% CI
+[−7.3, +4.7] — statistical parity where the frozen cold comparison had
+Apple ahead by 10.4. On the 43-item contrast corpus BiLing 79.1% vs 67.4%,
+CI touching zero at that n. Stated exactly that way, nothing stronger.
+
 ## Held-out results at this commit
 
 | | top-1 | top-5 | coverage | MRR |
@@ -96,18 +194,17 @@ of items instead of all of them.
 
 ## Not implemented (remains from the 19-phase plan)
 
-Modular engine protocols (2); named entities beyond people (3); trainable
-typing channel — form priors are still constants (4); learned decoder weights
-— the trainer exists but no exported model beats fallback yet (5); multi-tier
-user LM, structured learning events, HMAC dedup index (6); compact Core ML
-discriminative reranker (7) — the current gate is margin-only, not a learned
-confidence model; Qwen bridge fixes: atomic cancellation, tokenization
-boundary handling (9); candidate stability controller (10) — churn is
-measured, untreated; context-isolation audit (11); data manifests (12);
-source/time-separated splits (13); energy instrumentation beyond signposts
-(15); Apple comparison protocol doc (16); CI without LFS, transactional
-installer (17); configuration system and diagnostics mode (18).
+Modular engine protocols (2) — extraction of whole-key candidate producers
+behind a protocol is in review on a branch, behavioural-identity gated;
+learned decoder weights (5) and the distilled reranker (7) — both trainers
+exist and both refuse to export because nothing beats fallback beyond noise
+(the refusal is the result; infrastructure ships dormant); energy
+instrumentation beyond signposts and the gate's measured invocation cuts
+(15) — powermetrics automation was not built.
 
-Apple Pinyin remains ahead on the paired no-context comparison (60.8% vs
-50.4% at the last measurement, before this round's changes; not re-run since —
-re-running it requires taking over the keyboard). No claim of parity is made.
+Apple Pinyin remains ahead cold (60.8% vs 50.4%, frozen 260-item
+comparison). With committed context the systems are statistically
+indistinguishable on general text and BiLing leads on context
+disambiguation at an n too small to certify — see
+`Docs/results/apple-comparison-context.txt`. No parity claim is made for
+cold start; no SOTA claim is made anywhere.
