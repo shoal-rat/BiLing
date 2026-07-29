@@ -95,6 +95,8 @@ public final class PinyinEngine: @unchecked Sendable {
             LexiconWholeKeySource(dictionary: dictionary),
             AbbreviationSource(dictionary: dictionary),
             NameCandidateSource(dictionary: dictionary, inventory: self.inventory),
+            LatinCandidateSource(english: EnglishLexicon.shared),
+            LiteralCandidateSource(),
         ]
     }
 
@@ -201,59 +203,6 @@ public final class PinyinEngine: @unchecked Sendable {
         for source in sources.dropFirst(Self.sourcesBeforeSentence) {
             for candidate in source.candidates(for: request) { add(candidate) }
         }
-
-        // A fully typed curated key always surfaces its canonical form —
-        // "claude" → Claude at the top in English mode; "ai" → AI as a lower
-        // candidate because 爱 is a real word; "openai" → OpenAI ahead of
-        // nonsense syllable stitches like 哦喷爱, because no real word owns
-        // that key.
-        if let display = english.exactDisplay(for: key) {
-            // The letters spell a known term exactly. That is strong evidence
-            // unless they also spell valid pinyin, where Chinese keeps priority.
-            let score = ScoreModel.latinLogProbability(
-                mode == .chinesePrimary ? .curatedExpansion : .spelledOut,
-                logTotalWeight: logTotal
-            )
-            add(
-                Candidate(
-                    text: display,
-                    pinyin: key,
-                    source: .english,
-                    consumed: key.count,
-                    score: score
-                )
-            )
-        }
-
-        if mode == .englishPrimary || mode == .chineseWithEnglish || mode == .literal {
-            for (rank, word) in english.completions(for: key, limit: 4).enumerated() {
-                add(
-                    Candidate(
-                        text: word,
-                        pinyin: key,
-                        source: .english,
-                        consumed: key.count,
-                        // Later completions are progressively weaker guesses.
-                        score: ScoreModel.latinLogProbability(
-                            .curatedExpansion,
-                            logTotalWeight: logTotal
-                        ) + log(1.0 / Double(rank + 1))
-                    )
-                )
-            }
-        }
-
-        add(
-            Candidate(
-                text: rawInput,
-                pinyin: key,
-                source: .literal,
-                consumed: key.count,
-                score: mode == .literal
-                    ? ScoreModel.literalIntended
-                    : ScoreModel.literalLogProbability(length: key.count)
-            )
-        )
 
         // Admission for tolerant readings, now that every exact source has
         // spoken. Fuzzy readings enter wherever their probability puts them —

@@ -274,3 +274,80 @@ public struct NameCandidateSource: WholeKeyCandidateSource {
         )
     }
 }
+
+/// English/Latin readings of the whole key, from the curated lexicon.
+public struct LatinCandidateSource: WholeKeyCandidateSource {
+    let english: EnglishLexicon
+
+    public init(english: EnglishLexicon) {
+        self.english = english
+    }
+
+    public func candidates(for request: CandidateRequest) -> [Candidate] {
+        let key = request.key
+        var results: [Candidate] = []
+
+        // A fully typed curated key always surfaces its canonical form —
+        // "claude" → Claude at the top in English mode; "ai" → AI as a lower
+        // candidate because 爱 is a real word; "openai" → OpenAI ahead of
+        // nonsense syllable stitches like 哦喷爱, because no real word owns
+        // that key.
+        if let display = english.exactDisplay(for: key) {
+            // The letters spell a known term exactly. That is strong evidence
+            // unless they also spell valid pinyin, where Chinese keeps priority.
+            let score = ScoreModel.latinLogProbability(
+                request.mode == .chinesePrimary ? .curatedExpansion : .spelledOut,
+                logTotalWeight: request.logTotalWeight
+            )
+            results.append(
+                Candidate(
+                    text: display,
+                    pinyin: key,
+                    source: .english,
+                    consumed: key.count,
+                    score: score
+                )
+            )
+        }
+
+        if request.mode == .englishPrimary || request.mode == .chineseWithEnglish
+            || request.mode == .literal {
+            for (rank, word) in english.completions(for: key, limit: 4).enumerated() {
+                results.append(
+                    Candidate(
+                        text: word,
+                        pinyin: key,
+                        source: .english,
+                        consumed: key.count,
+                        // Later completions are progressively weaker guesses.
+                        score: ScoreModel.latinLogProbability(
+                            .curatedExpansion,
+                            logTotalWeight: request.logTotalWeight
+                        ) + log(1.0 / Double(rank + 1))
+                    )
+                )
+            }
+        }
+        return results
+    }
+}
+
+/// The raw keystrokes, exactly as typed. Always present: Return commits
+/// them, and users rely on that escape hatch.
+public struct LiteralCandidateSource: WholeKeyCandidateSource {
+    public init() {}
+
+    public func candidates(for request: CandidateRequest) -> [Candidate] {
+        [
+            Candidate(
+                text: request.rawInput,
+                pinyin: request.key,
+                source: .literal,
+                consumed: request.key.count,
+                score: request.mode == .literal
+                    ? ScoreModel.literalIntended
+                    : ScoreModel.literalLogProbability(length: request.key.count)
+            )
+        ]
+    }
+}
