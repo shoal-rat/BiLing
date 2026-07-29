@@ -52,7 +52,7 @@ enum Evaluate {
     /// vectors and which candidate matches the target. This is the training
     /// set for the listwise ranker — real lists the engine actually produced,
     /// hard negatives included by construction.
-    static func dumpFeatures(corpus: URL, useContext: Bool) throws {
+    static func dumpFeatures(corpus: URL, useContext: Bool, teacher: QwenRanker? = nil) throws {
         let rows = try parse(corpus)
         let engine = try PinyinEngine(dictionary: .bundled(), learningStore: MemoryLearningStore())
         EnglishLexicon.shared.warm()
@@ -63,11 +63,34 @@ enum Evaluate {
             let target = normalise(row.expected)
             guard let positive = candidates.firstIndex(where: { normalise($0.text) == target })
             else { continue }  // uncovered items teach the ranker nothing
+
+            // Teacher scores, when a model is supplied. Qwen's role here is
+            // offline distillation: its per-candidate log-probabilities become
+            // soft targets so a compact model can learn the ranking judgement
+            // without the 0.6B inference cost at runtime.
+            var teacherScores: [String: Double] = [:]
+            if let teacher {
+                let request = RankRequest(
+                    clientID: UUID(),
+                    generation: 1,
+                    input: row.pinyin,
+                    committedContext: context,
+                    candidates: candidates.prefix(16).map(\.text)
+                )
+                if let reply = try? runBlocking({ try await teacher.rank(request) }) {
+                    teacherScores = reply.scores
+                }
+            }
+
             let list: [[String: Any]] = candidates.prefix(40).map { candidate in
-                [
+                var entry: [String: Any] = [
                     "features": RankerModel.features(for: candidate, keyLength: row.pinyin.count),
                     "text": candidate.text,
                 ]
+                if let score = teacherScores[candidate.text] {
+                    entry["teacher"] = score
+                }
+                return entry
             }
             guard positive < list.count else { continue }
             let record: [String: Any] = [

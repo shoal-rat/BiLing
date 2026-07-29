@@ -26,6 +26,8 @@ var dumpFeaturesCorpus: URL?
 var replayCorpus: URL?
 var replayLimit = 50
 var exportDirectory: String?
+var learningExportPath: String?
+var forgetLearnedID: Int64?
 while !arguments.isEmpty {
     let item = arguments.removeFirst()
     switch item {
@@ -61,8 +63,35 @@ while !arguments.isEmpty {
     case "--export-training-data":
         guard !arguments.isEmpty else { usage() }
         exportDirectory = arguments.removeFirst()
+    case "--export-learning":
+        guard !arguments.isEmpty else { usage() }
+        learningExportPath = arguments.removeFirst()
+    case "--forget-learned":
+        guard !arguments.isEmpty else { usage() }
+        forgetLearnedID = Int64(arguments.removeFirst())
     default:
         pinyin = item
+    }
+}
+
+// Data-ownership commands operate on the real store (Keychain consent is the
+// user's to give — macOS will ask on first access from this binary).
+if learningExportPath != nil || forgetLearnedID != nil {
+    do {
+        let engine = try PinyinEngine.production()
+        if let forgetLearnedID {
+            engine.learningStore.deleteItem(id: forgetLearnedID)
+            print("Removed learned entry \(forgetLearnedID)")
+        }
+        if let learningExportPath {
+            let data = try engine.learningStore.exportData()
+            try data.write(to: URL(fileURLWithPath: learningExportPath))
+            print("Learning data exported to \(learningExportPath)")
+        }
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("Learning-store access failed: \(error.localizedDescription)\n".utf8))
+        exit(1)
     }
 }
 
@@ -81,7 +110,8 @@ EnglishLexicon.shared.warm()
 
 if let dumpFeaturesCorpus {
     do {
-        try Evaluate.dumpFeatures(corpus: dumpFeaturesCorpus, useContext: !noContext)
+        let teacher = engineOnly ? nil : try QwenRanker(modelURL: modelURL)
+        try Evaluate.dumpFeatures(corpus: dumpFeaturesCorpus, useContext: !noContext, teacher: teacher)
         exit(0)
     } catch {
         FileHandle.standardError.write(Data("Error: \(error.localizedDescription)\n".utf8))
