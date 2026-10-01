@@ -34,6 +34,14 @@ public final class Ziqi {
         /// Weight of each ear's log-probability.
         public var tingWeight: Float = 1.0
         public var zhiWeight: Float = 0.6
+        /// 知意's weight when there is no context at all: with nothing to
+        /// read, the plain base model leans toward the openings of web and
+        /// news documents (看点是 for kandianshi), so 听音 — which learned
+        /// chat — should lead.
+        public var zhiWeightCold: Float = 0.6
+        /// What 知意 reads before an empty context: a register hint. The KV
+        /// cache keeps it, so it costs nothing after the first keystroke.
+        public var coldPrefix = ""
         /// Partial hypotheses are ranked by score + perKey × keys read, so one
         /// that has read more of the keys is not ranked down for having paid.
         public var perKey: Float = 1.0
@@ -42,8 +50,11 @@ public final class Ziqi {
         /// …and of a character read through a slip (走音: neighbour key,
         /// swapped, missing or doubled letter).
         public var slipCost: Float = 5.0
-        /// Cost of a Latin token (keeps pinyin from turning into English).
+        /// Cost of a Latin token (keeps pinyin from turning into English)…
         public var latinCost: Float = 3.0
+        /// …and extra for a capitalised word (Haroen): a name the keys happen
+        /// to spell is far less likely than pinyin with a slip.
+        public var properNounCost: Float = 3.0
         public var contextScalars = 48
         public var gpuLayers: Int32 = -1
         public init() {}
@@ -109,10 +120,16 @@ public final class Ziqi {
 
     static let sequentialEars = ProcessInfo.processInfo.environment["ZHIYIN_SEQUENTIAL"] != nil
     static let trace = ProcessInfo.processInfo.environment["ZHIYIN_TRACE"] != nil
+    /// Dictionary readings that ride along in the beam's batches.
+    static let maxRiders = 4
     public var config: Config
     public let description: String
     public let hasTingyin: Bool
     private let model: OpaquePointer
+    /// A separate, fused 听音 model (LoRA merged in) when one is given in
+    /// place of an adapter: no per-step LoRA matmuls, at the price of a
+    /// second set of weights in memory.
+    private var tingModel: OpaquePointer?
     private let vocab: OpaquePointer
     private let trie: CharTrie
     private let vocabularySize: Int
@@ -276,21 +293,33 @@ public final class Ziqi {
         vocabularySize = Int(llama_vocab_n_tokens(vocab))
 
         var adapter: OpaquePointer?
+        var fused: OpaquePointer?
         if let adapterPath, FileManager.default.fileExists(atPath: adapterPath) {
-            adapter = llama_adapter_lora_init(model, adapterPath)
-            if adapter == nil {
-                llama_model_free(model)
-                throw LoadError.adapter(adapterPath)
+            let size = (try? FileManager.default.attributesOfItem(atPath: adapterPath)[.size] as? Int) ?? 0
+            if size > 200_000_000 {
+                // A whole model, not an adapter: 听音 fused.
+                fused = llama_model_load_from_file(adapterPath, modelParams)
+                if fused == nil {
+                    llama_model_free(model)
+                    throw LoadError.adapter(adapterPath)
+                }
+            } else {
+                adapter = llama_adapter_lora_init(model, adapterPath)
+                if adapter == nil {
+                    llama_model_free(model)
+                    throw LoadError.adapter(adapterPath)
+                }
             }
         }
-        hasTingyin = adapter != nil
-        let chosen = config ?? (adapter != nil ? Config() : Config.zhiOnly)
+        tingModel = fused
+        hasTingyin = adapter != nil || fused != nil
+        let chosen = config ?? (hasTingyin ? Config() : Config.zhiOnly)
         self.config = chosen
         maxSequences = Int32(max(chosen.beam, 12) + 1)
         let padding = ProcessInfo.processInfo.environment["ZHIYIN_PAD"] != nil ? chosen.beam : 0
-        let sequences = maxSequences + Int32(padding)
+        let sequences = maxSequences + Int32(Ziqi.maxRiders) + Int32(padding)
 
-        func makeContext() -> OpaquePointer? {
+        func makeContext(_ model: OpaquePointer) -> OpaquePointer? {
             var p = llama_context_default_params()
             p.n_ctx = UInt32(ProcessInfo.processInfo.environment["ZHIYIN_NCTX"].flatMap(Int.init) ?? 2048)
             p.n_batch = 512
@@ -304,25 +333,27 @@ public final class Ziqi {
             p.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO
             return llama_init_from_model(model, p)
         }
-        guard let zhiContext = makeContext() else {
+        guard let zhiContext = makeContext(model) else {
             llama_model_free(model)
             throw LoadError.context
         }
         zhi = Ear(ctx: zhiContext, vocabularySize: vocabularySize)
-        let firstPad = maxSequences
+        let firstPad = maxSequences + Int32(Ziqi.maxRiders)
         let padSequences = (0..<padding).map { firstPad + Int32($0) }
         zhi?.name = "zhi"
         zhi?.padTo = padding
         zhi?.padSequences = padSequences
-        if let adapter {
-            guard let tingContext = makeContext() else {
+        if adapter != nil || fused != nil {
+            guard let tingContext = makeContext(fused ?? model) else {
                 zhi = nil
                 llama_model_free(model)
                 throw LoadError.context
             }
-            var adapters: [OpaquePointer?] = [adapter]
-            var scales: [Float] = [1.0]
-            _ = llama_set_adapters_lora(tingContext, &adapters, 1, &scales)
+            if let adapter {
+                var adapters: [OpaquePointer?] = [adapter]
+                var scales: [Float] = [1.0]
+                _ = llama_set_adapters_lora(tingContext, &adapters, 1, &scales)
+            }
             ting = Ear(ctx: tingContext, vocabularySize: vocabularySize)
             ting?.name = "ting"
             ting?.padTo = padding
@@ -333,13 +364,14 @@ public final class Ziqi {
         llama_model_desc(model, &buffer, buffer.count)
         let name = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         let megabytes = Double(llama_model_size(model)) / 1_048_576
-        description = "\(name) · \(Int(megabytes)) MB · \(adapter != nil ? "听音+知意" : "知意")"
+        description = "\(name) · \(Int(megabytes)) MB · \(fused != nil ? "听音(合并)+知意" : adapter != nil ? "听音+知意" : "知意")"
     }
 
     deinit {
         // Contexts first; the model (and its adapter) must outlive them.
         ting = nil
         zhi = nil
+        if let tingModel { llama_model_free(tingModel) }
         llama_model_free(model)
     }
 
@@ -394,9 +426,13 @@ public final class Ziqi {
         return tokens
     }
 
-    /// 知意's prompt: the context alone, after a document boundary.
+    /// 知意's prompt: the context alone, after a document boundary (or the
+    /// register hint when there is no context).
     func zhiPrompt(_ context: [llama_token]) -> [llama_token] {
-        [Ziqi.endOfText] + context
+        if context.isEmpty, !config.coldPrefix.isEmpty {
+            return [Ziqi.endOfText] + tokenize(config.coldPrefix)
+        }
+        return [Ziqi.endOfText] + context
     }
 
     func piece(_ token: llama_token) -> String {
@@ -440,30 +476,39 @@ public final class Ziqi {
             ))
         }
         for (token, end) in trie.latinMatches(reader, from: p) {
-            out.append(Option(token: llama_token(token), end: end, cost: config.latinCost, slips: 0))
+            let text = piece(llama_token(token)).trimmingCharacters(in: .whitespaces)
+            let scalars = Array(text.unicodeScalars)
+            let capitalised = scalars.count >= 3 && CharacterSet.uppercaseLetters.contains(scalars[0])
+                && scalars.dropFirst().allSatisfy { CharacterSet.lowercaseLetters.contains($0) }
+            out.append(Option(token: llama_token(token), end: end,
+                              cost: config.latinCost + (capitalised ? config.properNounCost : 0), slips: 0))
         }
         cache[p] = out
         return out
     }
 
-    /// How `text` (BPE-tokenized) reads the keys: the cheapest channel cost
-    /// over all alignments that end exactly at the end of the keys, or nil.
-    private func alignment(_ tokens: [llama_token], _ reader: KeyReader, cache: inout [Int: [Option]]) -> Float? {
-        var states: [Int: (cost: Float, slips: Int)] = [0: (0, 0)]
+    /// How `text` (BPE-tokenized) reads the keys: the per-token channel
+    /// costs of the cheapest alignment that ends exactly at the end of the
+    /// keys, or nil if the keys cannot spell it.
+    private func alignment(_ tokens: [llama_token], _ reader: KeyReader, cache: inout [Int: [Option]]) -> [Float]? {
+        struct State { var cost: Float; var slips: Int; var costs: [Float] }
+        var states: [Int: State] = [0: State(cost: 0, slips: 0, costs: [])]
         for t in tokens {
-            var next: [Int: (cost: Float, slips: Int)] = [:]
+            var next: [Int: State] = [:]
             for (p, st) in states {
                 for o in options(reader, at: p, cache: &cache) where o.token == t {
                     let slips = st.slips + o.slips
                     guard slips <= KeyReader.maxSlips else { continue }
                     let c = st.cost + o.cost
-                    if next[o.end].map({ c < $0.cost }) ?? true { next[o.end] = (c, slips) }
+                    if next[o.end].map({ c < $0.cost }) ?? true {
+                        next[o.end] = State(cost: c, slips: slips, costs: st.costs + [o.cost])
+                    }
                 }
             }
             if next.isEmpty { return nil }
             states = next
         }
-        return states[reader.count]?.cost
+        return states[reader.count]?.costs
     }
 
     /// Reads `keys` in the light of `context`. Returns nil when cancelled
@@ -471,8 +516,8 @@ public final class Ziqi {
     ///
     /// `rescue` are readings found elsewhere (琴谱's sentences, 默契's
     /// memories). The beam can miss a name or an idiom the dictionary knows;
-    /// these are scored by both ears exactly like the beam's own results, in
-    /// one extra batched decode, and ranked together with them.
+    /// these ride along in the beam's own batches — one forced token per
+    /// step, no extra decode — and are ranked together with its results.
     public func listen(
         context: String,
         keys: String,
@@ -488,7 +533,7 @@ public final class Ziqi {
         let ting = config.tingWeight > 0 ? self.ting : nil
         let zhi = (config.zhiWeight > 0 || ting == nil) ? self.zhi : nil
         let tingWeight = config.tingWeight
-        let zhiWeight = ting == nil ? 1 : config.zhiWeight
+        let zhiWeight = ting == nil ? 1 : (context.isEmpty ? config.zhiWeightCold : config.zhiWeight)
         let tingTokens = tingPrompt(contextTokens, keys: keyBytes)
         let zhiTokens = zhiPrompt(contextTokens)
         let ears = [ting, zhi].compactMap { $0 }
@@ -518,84 +563,136 @@ public final class Ziqi {
         var steps = 0
         let maxSlips = KeyReader.maxSlips
 
-        func release() { for ear in ears { ear.clearCandidates(maxSequences) } }
+        // 琴谱补漏 riders: readings found elsewhere, forced token by token in
+        // the same batches as the beam — no extra decode calls.
+        struct Rider {
+            let text: String
+            let tokens: [llama_token]
+            let costs: [Float]
+            var emitted = 0
+            var logp: Float = 0
+            let sequence: Int32
+            var row: Int32 = -1
+        }
+        var riders: [Rider] = []
+        for text in rescue where !text.isEmpty && riders.count < Ziqi.maxRiders {
+            let tokens = tokenize(text)
+            guard !tokens.isEmpty, tokens.count <= 16,
+                  let costs = alignment(tokens, reader, cache: &optionCache) else { continue }
+            let sequence = maxSequences + Int32(riders.count)
+            for ear in ears { llama_memory_seq_cp(ear.memory, 0, sequence, -1, -1) }
+            riders.append(Rider(text: text, tokens: tokens, costs: costs, sequence: sequence))
+        }
 
+        func release() {
+            for ear in ears { ear.clearCandidates(maxSequences + Int32(Ziqi.maxRiders)) }
+        }
+
+        var beamAlive = true
         for step in 0..<(n + 2) {
             if isCancelled() { release(); return nil }
             struct Expansion { let score: Float; let rank: Float; let option: Option; let parent: Int }
             var expansions: [Expansion] = []
-            for (index, h) in live.enumerated() {
-                let opts = options(reader, at: h.position, cache: &optionCache)
-                guard !opts.isEmpty else { continue }
-                var combined = [Float](repeating: 0, count: opts.count)
-                if let ting {
-                    let ok = ting.withRow(h.row) { row, z in
-                        for (i, o) in opts.enumerated() { combined[i] += tingWeight * (row[Int(o.token)] - z) }
+            if beamAlive {
+                for (index, h) in live.enumerated() {
+                    let opts = options(reader, at: h.position, cache: &optionCache)
+                    guard !opts.isEmpty else { continue }
+                    var combined = [Float](repeating: 0, count: opts.count)
+                    if let ting {
+                        let ok = ting.withRow(h.row) { row, z in
+                            for (i, o) in opts.enumerated() { combined[i] += tingWeight * (row[Int(o.token)] - z) }
+                        }
+                        guard ok else { release(); return nil }
                     }
-                    guard ok else { release(); return nil }
-                }
-                if let zhi {
-                    let ok = zhi.withRow(h.row) { row, z in
-                        for (i, o) in opts.enumerated() { combined[i] += zhiWeight * (row[Int(o.token)] - z) }
+                    if let zhi {
+                        let ok = zhi.withRow(h.row) { row, z in
+                            for (i, o) in opts.enumerated() { combined[i] += zhiWeight * (row[Int(o.token)] - z) }
+                        }
+                        guard ok else { release(); return nil }
                     }
-                    guard ok else { release(); return nil }
-                }
-                for (i, o) in opts.enumerated() where h.slips + o.slips <= maxSlips {
-                    let score = h.logp + combined[i] - o.cost
-                    expansions.append(Expansion(score: score, rank: score + config.perKey * Float(o.end), option: o, parent: index))
-                    if step == 0 { leads.append(Lead(text: piece(o.token), end: o.end, logp: score)) }
+                    for (i, o) in opts.enumerated() where h.slips + o.slips <= maxSlips {
+                        let score = h.logp + combined[i] - o.cost
+                        expansions.append(Expansion(score: score, rank: score + config.perKey * Float(o.end), option: o, parent: index))
+                        if step == 0 { leads.append(Lead(text: piece(o.token), end: o.end, logp: score)) }
+                    }
                 }
             }
-            if expansions.isEmpty { break }
-            expansions.sort { $0.rank > $1.rank }
+            // Riders take their forced next token.
+            for r in riders.indices where riders[r].emitted < riders[r].tokens.count {
+                let t = riders[r].tokens[riders[r].emitted]
+                var gain: Float = 0
+                if let ting { _ = ting.withRow(riders[r].row) { row, z in gain += tingWeight * (row[Int(t)] - z) } }
+                if let zhi { _ = zhi.withRow(riders[r].row) { row, z in gain += zhiWeight * (row[Int(t)] - z) } }
+                riders[r].logp += gain - riders[r].costs[riders[r].emitted]
+                riders[r].emitted += 1
+                if riders[r].emitted == riders[r].tokens.count {
+                    let text = riders[r].text
+                    if finished[text].map({ $0.logp < riders[r].logp }) ?? true {
+                        finished[text] = Result(text: text, logp: riders[r].logp, tokens: riders[r].tokens.map { Int32($0) })
+                    }
+                }
+            }
 
-            var bestFinal = finished.values.map(\.logp).max() ?? -.infinity
             var next: [(parent: Int, option: Option, score: Float)] = []
-            for e in expansions {
-                if e.option.end == n {
-                    let tokens = live[e.parent].tokens + [e.option.token]
-                    let text = tokens.map(piece).joined()
-                    if finished[text].map({ $0.logp < e.score }) ?? true {
-                        finished[text] = Result(text: text, logp: e.score, tokens: tokens.map { Int32($0) })
-                        bestFinal = max(bestFinal, e.score)
+            if beamAlive {
+                expansions.sort { $0.rank > $1.rank }
+                var bestFinal = finished.values.map(\.logp).max() ?? -.infinity
+                for e in expansions {
+                    if e.option.end == n {
+                        let tokens = live[e.parent].tokens + [e.option.token]
+                        let text = tokens.map(piece).joined()
+                        if finished[text].map({ $0.logp < e.score }) ?? true {
+                            finished[text] = Result(text: text, logp: e.score, tokens: tokens.map { Int32($0) })
+                            bestFinal = max(bestFinal, e.score)
+                        }
+                        continue
                     }
-                    continue
+                    if next.count < beam { next.append((e.parent, e.option, e.score)) }
+                    if next.count >= beam, finished.count >= config.results { break }
                 }
-                if next.count < beam { next.append((e.parent, e.option, e.score)) }
-                if next.count >= beam, finished.count >= config.results { break }
+                if next.isEmpty || (!finished.isEmpty && next.allSatisfy({ $0.score < bestFinal - 8 })) {
+                    beamAlive = false
+                    next = []
+                }
             }
-            if next.isEmpty { break }
-            if !finished.isEmpty, next.allSatisfy({ $0.score < bestFinal - 8 }) { break }
 
             // Re-assign KV sequences, identically in every ear: dead parents
             // release theirs, the first child inherits its parent's, siblings
             // get copies.
-            var childCount = [Int](repeating: 0, count: live.count)
-            for c in next { childCount[c.parent] += 1 }
-            for (i, h) in live.enumerated() where childCount[i] == 0 && h.sequence != 0 {
-                for ear in ears { llama_memory_seq_rm(ear.memory, h.sequence, -1, -1) }
-                freeSequences.append(h.sequence)
-            }
-            var inherited = [Bool](repeating: false, count: live.count)
             var children: [Hypothesis] = []
-            for c in next {
-                let parent = live[c.parent]
-                let sequence: Int32
-                if parent.sequence != 0, !inherited[c.parent] {
-                    inherited[c.parent] = true
-                    sequence = parent.sequence
-                } else {
-                    guard let fresh = freeSequences.popLast() else { continue }
-                    sequence = fresh
-                    for ear in ears { llama_memory_seq_cp(ear.memory, parent.sequence, sequence, -1, -1) }
+            if beamAlive {
+                var childCount = [Int](repeating: 0, count: live.count)
+                for c in next { childCount[c.parent] += 1 }
+                for (i, h) in live.enumerated() where childCount[i] == 0 && h.sequence != 0 {
+                    for ear in ears { llama_memory_seq_rm(ear.memory, h.sequence, -1, -1) }
+                    freeSequences.append(h.sequence)
                 }
-                children.append(Hypothesis(
-                    tokens: parent.tokens + [c.option.token], position: c.option.end, logp: c.score,
-                    slips: parent.slips + c.option.slips, sequence: sequence, row: Int32(children.count)
-                ))
+                var inherited = [Bool](repeating: false, count: live.count)
+                for c in next {
+                    let parent = live[c.parent]
+                    let sequence: Int32
+                    if parent.sequence != 0, !inherited[c.parent] {
+                        inherited[c.parent] = true
+                        sequence = parent.sequence
+                    } else {
+                        guard let fresh = freeSequences.popLast() else { continue }
+                        sequence = fresh
+                        for ear in ears { llama_memory_seq_cp(ear.memory, parent.sequence, sequence, -1, -1) }
+                    }
+                    children.append(Hypothesis(
+                        tokens: parent.tokens + [c.option.token], position: c.option.end, logp: c.score,
+                        slips: parent.slips + c.option.slips, sequence: sequence, row: Int32(children.count)
+                    ))
+                }
             }
+            // Riders that still have tokens to go ride in the same batch.
+            var batch = children.map { ($0.tokens.last!, $0.sequence) }
+            for r in riders.indices where riders[r].emitted < riders[r].tokens.count {
+                riders[r].row = Int32(batch.count)
+                batch.append((riders[r].tokens[riders[r].emitted - 1], riders[r].sequence))
+            }
+            if batch.isEmpty { break }
             if isCancelled() { release(); return nil }
-            let batch = children.map { ($0.tokens.last!, $0.sequence) }
             let decodeStarted = DispatchTime.now().uptimeNanoseconds
             var tingOK = true
             var zhiOK = true
@@ -614,65 +711,7 @@ public final class Ziqi {
             steps += 1
             live = children
         }
-
-        // 琴谱补漏: force-score readings the beam did not reach.
         release()
-        var plans: [(text: String, tokens: [llama_token], cost: Float)] = []
-        var budget = 480
-        for text in rescue where finished[text] == nil && !text.isEmpty {
-            let tokens = tokenize(text)
-            guard !tokens.isEmpty, tokens.count <= budget,
-                  let cost = alignment(tokens, reader, cache: &optionCache) else { continue }
-            plans.append((text, tokens, cost))
-            budget -= tokens.count
-            if plans.count >= min(6, Int(maxSequences) - 1) { break }
-        }
-        if !plans.isEmpty, !isCancelled() {
-            // One batch: plan i occupies sequence i+1, positions after the prompt.
-            var rows: [[Int32]] = []
-            var batch: [(llama_token, Int32, llama_pos)] = []
-            for (i, plan) in plans.enumerated() {
-                let sequence = Int32(i + 1)
-                for ear in ears { llama_memory_seq_cp(ear.memory, 0, sequence, -1, -1) }
-                var r: [Int32] = []
-                for (j, t) in plan.tokens.enumerated() {
-                    r.append(Int32(batch.count))
-                    batch.append((t, sequence, llama_pos(j)))
-                }
-                rows.append(r)
-            }
-            var scores = [Float](repeating: 0, count: plans.count)
-            var ok = true
-            for (ear, weight, promptCount) in [(ting, tingWeight, tingTokens.count), (zhi, zhiWeight, zhiTokens.count)] {
-                guard let ear else { continue }
-                ear.batch.n_tokens = Int32(batch.count)
-                for (k, item) in batch.enumerated() {
-                    ear.batch.token[k] = item.0
-                    ear.batch.pos[k] = llama_pos(promptCount) + item.2
-                    ear.batch.n_seq_id[k] = 1
-                    ear.batch.seq_id[k]![0] = item.1
-                    ear.batch.logits[k] = 1
-                }
-                let t1 = DispatchTime.now().uptimeNanoseconds
-                guard llama_decode(ear.ctx, ear.batch) == 0 else { ok = false; break }
-                llama_synchronize(ear.ctx)
-                decodeNanos += DispatchTime.now().uptimeNanoseconds - t1
-                for (i, plan) in plans.enumerated() {
-                    for (j, t) in plan.tokens.enumerated() {
-                        // Token j is predicted by the prompt (j == 0) or by token j-1.
-                        let row: Int32 = j == 0 ? -1 : rows[i][j - 1]
-                        _ = ear.withRow(row) { logits, z in scores[i] += weight * (logits[Int(t)] - z) }
-                    }
-                }
-            }
-            if ok {
-                for (i, plan) in plans.enumerated() {
-                    let logp = scores[i] - plan.cost
-                    finished[plan.text] = Result(text: plan.text, logp: logp, tokens: plan.tokens.map { Int32($0) })
-                }
-            }
-            release()
-        }
         let results = finished.values.sorted { $0.logp > $1.logp }.prefix(config.results)
         var seenLeads = Set<String>()
         let rankedLeads = leads.sorted { $0.logp > $1.logp }.filter { seenLeads.insert($0.text + "\u{1}\($0.end)").inserted }

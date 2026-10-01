@@ -104,6 +104,7 @@ final class ZhiyinInputController: IMKInputController {
                 commitLiteral(client: sender)
                 return true
             case kVK_Space:
+                settleBeforeCommit(client: sender)
                 choose(highlighted, client: sender)
                 return true
             case kVK_LeftArrow:
@@ -229,6 +230,13 @@ final class ZhiyinInputController: IMKInputController {
             return
         }
         let immediate = compose(heard: nil)
+        // The list belongs to these keys from this moment on, drawn or not:
+        // a space pressed before the panel appears must not commit a
+        // candidate computed for the previous keys.
+        candidates = immediate
+        highlighted = 0
+        heard = false
+        listening = runtime.listenerActive
         guard runtime.listenerActive else {
             present(immediate, heard: false, listening: false, client: sender)
             return
@@ -311,6 +319,20 @@ final class ZhiyinInputController: IMKInputController {
             selectionRange: NSRange(location: (text as NSString).length, length: 0),
             replacementRange: NSRange(location: NSNotFound, length: NSNotFound)
         )
+    }
+
+    /// Space pressed while 子期 is still listening: wait a moment (≤150 ms)
+    /// for its answer rather than commit 琴谱's guess. Not when the user has
+    /// moved along the strings — then they chose what they saw.
+    private func settleBeforeCommit(client sender: Any!) {
+        guard listening, !navigated, !composition.keys.isEmpty else { return }
+        MainActor.assumeIsolated {
+            guard let listener = runtime.listener,
+                  let heard = listener.awaitAnswer(generation: generation, timeout: 0.15),
+                  heard.keys == composition.keys else { return }
+            pendingShow?.cancel()
+            present(compose(heard: heard), heard: true, listening: false, client: sender)
+        }
     }
 
     private func move(_ delta: Int) {

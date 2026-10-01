@@ -13,3 +13,4 @@ Tests/Corpus/derived-*.tsv
 Docs/results/*.per-item.tsv
 Models/*.gguf
 Tests/Corpus/duel-*.tsv
+.build2/

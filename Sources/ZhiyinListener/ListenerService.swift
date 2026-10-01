@@ -36,6 +36,11 @@ public final class ListenerService: @unchecked Sendable {
 
     public var onStateChange: (@Sendable (State) -> Void)?
 
+    /// The latest finished answer, for a commit that cannot wait for the
+    /// main-queue completion (see awaitAnswer).
+    private let lastAnswer = OSAllocatedUnfairLock<(UInt64, Heard)?>(initialState: nil)
+    private let inFlight = DispatchGroup()
+
     public init(modelPath: String, adapterPath: String?, vocabularyPath: String, config: Ziqi.Config? = nil) {
         self.modelPath = modelPath
         self.adapterPath = adapterPath
@@ -90,7 +95,9 @@ public final class ListenerService: @unchecked Sendable {
         completion: @escaping @Sendable (Heard?, Ziqi.Answer?) -> Void
     ) {
         latest.withLock { $0 = max($0, generation) }
+        inFlight.enter()
         queue.async { [self] in
+            defer { inFlight.leave() }
             let isCurrent = { self.latest.withLock { $0 } == generation }
             guard isCurrent(), let z = ensureLoaded() else {
                 DispatchQueue.main.async { completion(nil, nil) }
@@ -106,8 +113,19 @@ public final class ListenerService: @unchecked Sendable {
                     leads: a.leads.map { Heard.Lead(text: $0.text, end: $0.end, logp: $0.logp) }
                 )
             }
+            if let heard { lastAnswer.withLock { $0 = (generation, heard) } }
             DispatchQueue.main.async { completion(heard, answer) }
         }
+    }
+
+    /// Waits (at most `timeout`) for the search of `generation` to finish and
+    /// returns its answer. For a commit made before 子期 has spoken: a short
+    /// wait beats committing 琴谱's guess.
+    public func awaitAnswer(generation: UInt64, timeout: TimeInterval) -> Heard? {
+        if let hit = lastAnswer.withLock({ $0 }), hit.0 == generation { return hit.1 }
+        _ = inFlight.wait(timeout: .now() + timeout)
+        guard let hit = lastAnswer.withLock({ $0 }), hit.0 == generation else { return nil }
+        return hit.1
     }
 
     /// Synchronous variant for tools and tests.

@@ -36,6 +36,9 @@ let modelPath = option("--model") ?? environment["ZHIYIN_MODEL"]
 let adapterPath = option("--adapter") ?? environment["ZHIYIN_ADAPTER"]
     ?? "\(dataDirectory)/../Models/ziqi-tingyin.gguf"
 let zhiWeight = option("--zhi").flatMap(Float.init)
+let zhiCold = option("--zhi-cold").flatMap(Float.init)
+let properCost = option("--proper-cost").flatMap(Float.init)
+let coldPrefix = option("--cold-prefix")
 let tingWeight = option("--ting").flatMap(Float.init)
 let perKey = option("--per-key").flatMap(Float.init)
 let abbrCost = option("--abbr-cost").flatMap(Float.init)
@@ -57,7 +60,10 @@ func loadZiqi() -> Ziqi {
     if let beam { config.beam = beam }
     if let perKey { config.perKey = perKey }
     if let latinPenalty { config.latinCost = latinPenalty }
-    if let zhiWeight { config.zhiWeight = zhiWeight }
+    if let zhiWeight { config.zhiWeight = zhiWeight; config.zhiWeightCold = zhiWeight }
+    if let zhiCold { config.zhiWeightCold = zhiCold }
+    if let properCost { config.properNounCost = properCost }
+    if let coldPrefix { config.coldPrefix = coldPrefix.replacingOccurrences(of: "\\n", with: "\n") }
     if let tingWeight { config.tingWeight = tingWeight }
     if let abbrCost { config.abbreviationCost = abbrCost }
     if let slipCost { config.slipCost = slipCost }
