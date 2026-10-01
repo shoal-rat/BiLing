@@ -48,6 +48,25 @@ final class Runtime {
         }
     }
 
+    private var saveWork: DispatchWorkItem?
+
+    /// 默契 is sealed and written at most once per quiet spell, never per
+    /// keystroke: a commit schedules a save 10 s out, a later commit pushes
+    /// it back, switching apps flushes it.
+    func scheduleSave() {
+        saveWork?.cancel()
+        let work = DispatchWorkItem { [moqi] in moqi.save() }
+        saveWork = work
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 10, execute: work)
+    }
+
+    func flushSave() {
+        saveWork?.cancel()
+        saveWork = nil
+        let moqi = self.moqi
+        DispatchQueue.global(qos: .utility).async { moqi.save() }
+    }
+
     func nextGeneration() -> UInt64 {
         generation &+= 1
         return generation

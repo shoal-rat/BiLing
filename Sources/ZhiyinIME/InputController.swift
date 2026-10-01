@@ -45,6 +45,7 @@ final class ZhiyinInputController: IMKInputController {
     override func deactivateServer(_ sender: Any!) {
         if !composition.isEmpty { commitHighlighted(client: sender) }
         panel.hide()
+        MainActor.assumeIsolated { runtime.flushSave() }
         // Text committed in one app must never shape readings in another.
         history = ""
         documentContext = ""
@@ -165,9 +166,9 @@ final class ZhiyinInputController: IMKInputController {
 
     private func handleShift(_ flags: NSEvent.ModifierFlags, client: Any!) {
         guard Preferences.shared.shiftToggles else { return }
-        if flags == .shift {
+        if flags.subtracting(.capsLock) == .shift {
             shiftClean = true
-        } else if flags.isEmpty, shiftClean {
+        } else if flags.subtracting(.capsLock).isEmpty, shiftClean {
             shiftClean = false
             // A lone tap of Shift: switch between 中 and 英. Keys already on
             // the strings go out as typed, as with Apple's pinyin.
@@ -330,7 +331,11 @@ final class ZhiyinInputController: IMKInputController {
 
     private func choose(_ index: Int, client sender: Any!) {
         guard index < candidates.count else {
-            if !composition.keys.isEmpty { commitLiteral(client: sender) }
+            if !composition.keys.isEmpty {
+                commitLiteral(client: sender)
+            } else if !composition.fixed.isEmpty {
+                learnAndCommit(composition.fixedText, client: sender)
+            }
             return
         }
         let candidate = candidates[index]
@@ -371,7 +376,7 @@ final class ZhiyinInputController: IMKInputController {
                 if pieces.count > 1 {
                     runtime.moqi.remember(keys: composition.allKeys, text: text, overTop: true)
                 }
-                runtime.moqi.save()
+                runtime.scheduleSave()
             }
         }
         insert(text, client: sender)

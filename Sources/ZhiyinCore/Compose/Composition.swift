@@ -54,7 +54,8 @@ public struct Composition: Sendable, Equatable {
         if rest.hasPrefix("'") { rest.removeFirst() }
         fixed.append(Piece(text: candidate.text, keys: read))
         keys = rest
-        return .continuing
+        // Only a separator was left: everything is read.
+        return rest.isEmpty ? .commit(fixedText) : .continuing
     }
 
     /// The pieces chosen so far, as (keys, text) — what 默契 learns from.

@@ -114,6 +114,12 @@ enum Fixtures {
         #expect(c.keys == "xi'an")
     }
 
+    @Test func trailingSeparatorCommits() {
+        var c = Composition()
+        for ch in "xi'" { c.append(ch) }
+        #expect(c.choose(Candidate(text: "西", consumed: 2, score: 0, voice: .qinpu)) == .commit("西"))
+    }
+
     @Test func separatorDroppedAfterPartialChoice() {
         var c = Composition()
         for ch in "xi'an" { c.append(ch) }

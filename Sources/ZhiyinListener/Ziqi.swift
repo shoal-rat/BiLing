@@ -107,6 +107,8 @@ public final class Ziqi {
     static let letterBase: llama_token = 64 // 'a'
     static let apostropheToken: llama_token = 6
 
+    static let sequentialEars = ProcessInfo.processInfo.environment["ZHIYIN_SEQUENTIAL"] != nil
+    static let trace = ProcessInfo.processInfo.environment["ZHIYIN_TRACE"] != nil
     public var config: Config
     public let description: String
     public let hasTingyin: Bool
@@ -164,9 +166,15 @@ public final class Ziqi {
                     batch.seq_id[i]![0] = 0
                     batch.logits[i] = (position + i == prompt.count - 1) ? 1 : 0
                 }
+                let t = DispatchTime.now().uptimeNanoseconds
                 if llama_decode(ctx, batch) != 0 {
                     reset()
                     return nil
+                }
+                if Ziqi.trace {
+                    llama_synchronize(ctx)
+                    let ms = Double(DispatchTime.now().uptimeNanoseconds - t) / 1e6
+                    FileHandle.standardError.write(Data("trace \(name) prompt n=\(chunk) \(String(format: "%.2f", ms)) ms\n".utf8))
                 }
                 position += chunk
             }
@@ -187,8 +195,16 @@ public final class Ziqi {
         }
 
         /// Decodes one token per child, (token, sequence), at `position`.
+        /// Pad every step to this many rows, so the decode graph keeps one
+        /// shape and llama.cpp can reuse it instead of rebuilding per step.
+        var name = "ear"
+        var padTo = 0
+        /// Sequence ids reserved for padding rows (one each, position 0).
+        var padSequences: [Int32] = []
+
         func step(_ children: [(llama_token, Int32)], position: llama_pos) -> Bool {
-            batch.n_tokens = Int32(children.count)
+            let pad = max(0, min(padTo, padSequences.count + children.count) - children.count)
+            batch.n_tokens = Int32(children.count + pad)
             for (i, child) in children.enumerated() {
                 batch.token[i] = child.0
                 batch.pos[i] = position
@@ -196,8 +212,22 @@ public final class Ziqi {
                 batch.seq_id[i]![0] = child.1
                 batch.logits[i] = 1
             }
+            for k in 0..<pad {
+                let i = children.count + k
+                batch.token[i] = children.last?.0 ?? 0
+                batch.pos[i] = 0
+                batch.n_seq_id[i] = 1
+                batch.seq_id[i]![0] = padSequences[k]
+                batch.logits[i] = 1
+            }
+            let t = DispatchTime.now().uptimeNanoseconds
             let ok = llama_decode(ctx, batch) == 0
             llama_synchronize(ctx)
+            if Ziqi.trace {
+                let ms = Double(DispatchTime.now().uptimeNanoseconds - t) / 1e6
+                FileHandle.standardError.write(Data("trace \(name) step n=\(batch.n_tokens) \(String(format: "%.2f", ms)) ms\n".utf8))
+            }
+            for k in 0..<pad { llama_memory_seq_rm(memory, padSequences[k], -1, -1) }
             return ok
         }
 
@@ -257,11 +287,12 @@ public final class Ziqi {
         let chosen = config ?? (adapter != nil ? Config() : Config.zhiOnly)
         self.config = chosen
         maxSequences = Int32(max(chosen.beam, 12) + 1)
-        let sequences = maxSequences
+        let padding = ProcessInfo.processInfo.environment["ZHIYIN_PAD"] != nil ? chosen.beam : 0
+        let sequences = maxSequences + Int32(padding)
 
         func makeContext() -> OpaquePointer? {
             var p = llama_context_default_params()
-            p.n_ctx = 2048
+            p.n_ctx = UInt32(ProcessInfo.processInfo.environment["ZHIYIN_NCTX"].flatMap(Int.init) ?? 2048)
             p.n_batch = 512
             p.n_ubatch = 512
             p.n_seq_max = UInt32(sequences)
@@ -278,6 +309,11 @@ public final class Ziqi {
             throw LoadError.context
         }
         zhi = Ear(ctx: zhiContext, vocabularySize: vocabularySize)
+        let firstPad = maxSequences
+        let padSequences = (0..<padding).map { firstPad + Int32($0) }
+        zhi?.name = "zhi"
+        zhi?.padTo = padding
+        zhi?.padSequences = padSequences
         if let adapter {
             guard let tingContext = makeContext() else {
                 zhi = nil
@@ -288,6 +324,9 @@ public final class Ziqi {
             var scales: [Float] = [1.0]
             _ = llama_set_adapters_lora(tingContext, &adapters, 1, &scales)
             ting = Ear(ctx: tingContext, vocabularySize: vocabularySize)
+            ting?.name = "ting"
+            ting?.padTo = padding
+            ting?.padSequences = padSequences
         }
 
         var buffer = [CChar](repeating: 0, count: 160)
@@ -561,9 +600,14 @@ public final class Ziqi {
             var tingOK = true
             var zhiOK = true
             // The two ears are independent contexts: decode them side by side.
-            DispatchQueue.concurrentPerform(iterations: 2) { i in
-                if i == 0, let ting { tingOK = ting.step(batch, position: llama_pos(tingTokens.count + step)) }
-                if i == 1, let zhi { zhiOK = zhi.step(batch, position: llama_pos(zhiTokens.count + step)) }
+            if Ziqi.sequentialEars {
+                if let ting { tingOK = ting.step(batch, position: llama_pos(tingTokens.count + step)) }
+                if let zhi { zhiOK = zhi.step(batch, position: llama_pos(zhiTokens.count + step)) }
+            } else {
+                DispatchQueue.concurrentPerform(iterations: 2) { i in
+                    if i == 0, let ting { tingOK = ting.step(batch, position: llama_pos(tingTokens.count + step)) }
+                    if i == 1, let zhi { zhiOK = zhi.step(batch, position: llama_pos(zhiTokens.count + step)) }
+                }
             }
             decodeNanos += DispatchTime.now().uptimeNanoseconds - decodeStarted
             guard tingOK, zhiOK else { release(); return nil }
