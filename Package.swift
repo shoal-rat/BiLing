@@ -1,92 +1,70 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
+// llama.cpp and ggml come from Homebrew (`brew install llama.cpp`). The
+// installer copies the dylibs into the app bundle and rewrites their paths.
+let llamaInclude = "/opt/homebrew/opt/llama.cpp/include"
+let ggmlInclude = "/opt/homebrew/opt/ggml/include"
+let llamaLib = "/opt/homebrew/opt/llama.cpp/lib"
+let ggmlLib = "/opt/homebrew/opt/ggml/lib"
+
 let package = Package(
-    name: "BiLing",
+    name: "Zhiyin",
     defaultLocalization: "zh-Hans",
     platforms: [.macOS("26.0")],
     products: [
-        .library(name: "PinyinLattice", targets: ["PinyinLattice"]),
-        .library(name: "InputSessionCore", targets: ["InputSessionCore"]),
-        .library(name: "BackboneEngine", targets: ["BackboneEngine"]),
-        .library(name: "IPCProtocol", targets: ["IPCProtocol"]),
-        .library(name: "LLMRanker", targets: ["LLMRanker"]),
-        .executable(name: "biling-cli", targets: ["BiLingCLI"]),
-        .executable(name: "biling-engined", targets: ["BiLingEngine"]),
-        .executable(name: "BiLingApp", targets: ["BiLingApp"]),
+        .library(name: "ZhiyinCore", targets: ["ZhiyinCore"]),
+        .library(name: "ZhiyinListener", targets: ["ZhiyinListener"]),
+        .executable(name: "Zhiyin", targets: ["ZhiyinIME"]),
+        .executable(name: "tiaoyin", targets: ["Tiaoyin"]),
     ],
     targets: [
-        .target(name: "PinyinLattice"),
-        .target(name: "InputSessionCore"),
-        .systemLibrary(name: "CSQLite"),
+        // 弦 strings, 琴谱 score, 默契 rapport, and how candidates are composed.
+        .target(name: "ZhiyinCore"),
         .target(
-            name: "BackboneEngine",
-            dependencies: ["PinyinLattice", "CSQLite"],
-            resources: [
-                .copy("Resources/lexicon.sqlite3"),
-                .copy("Resources/confidence-gate.json"),
-                .copy("Resources/confidence-gate-context.json"),
-            ]
+            name: "CLlama",
+            cSettings: [.unsafeFlags(["-I\(llamaInclude)", "-I\(ggmlInclude)"])]
         ),
-        .target(name: "IPCProtocol"),
+        // 子期 the listener: constrained beam search over the fine-tuned model.
         .target(
-            name: "CLlamaBridge",
-            path: "Sources/CLlamaBridge",
-            publicHeadersPath: "include",
-            cSettings: [
-                .unsafeFlags([
-                    "-I/opt/homebrew/opt/llama.cpp/include",
-                    "-I/opt/homebrew/opt/ggml/include",
-                ])
-            ],
+            name: "ZhiyinListener",
+            dependencies: ["ZhiyinCore", "CLlama"],
+            swiftSettings: [.unsafeFlags(["-Xcc", "-I\(llamaInclude)", "-Xcc", "-I\(ggmlInclude)"])],
             linkerSettings: [
                 .unsafeFlags([
-                    "-L/opt/homebrew/opt/llama.cpp/lib",
-                    "-L/opt/homebrew/opt/ggml/lib",
-                    "-Xlinker", "-rpath", "-Xlinker", "/opt/homebrew/opt/llama.cpp/lib",
-                    "-Xlinker", "-rpath", "-Xlinker", "/opt/homebrew/opt/ggml/lib",
+                    "-L\(llamaLib)", "-L\(ggmlLib)",
+                    "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
+                    "-Xlinker", "-rpath", "-Xlinker", llamaLib,
+                    "-Xlinker", "-rpath", "-Xlinker", ggmlLib,
                 ]),
                 .linkedLibrary("llama"),
                 .linkedLibrary("ggml"),
+                .linkedLibrary("ggml-base"),
                 .linkedFramework("Accelerate"),
             ]
         ),
-        .target(
-            name: "LLMRanker",
-            dependencies: ["CLlamaBridge", "BackboneEngine", "IPCProtocol"]
-        ),
+        // 知音.app — the InputMethodKit input method, its panel and 琴台.
         .executableTarget(
-            name: "BiLingCLI",
-            dependencies: ["BackboneEngine", "InputSessionCore", "LLMRanker"]
-        ),
-        .executableTarget(
-            name: "BiLingEngine",
-            dependencies: ["IPCProtocol", "LLMRanker"]
-        ),
-        .executableTarget(
-            name: "BiLingApp",
-            dependencies: ["BackboneEngine", "InputSessionCore", "IPCProtocol"],
+            name: "ZhiyinIME",
+            dependencies: ["ZhiyinCore", "ZhiyinListener"],
+            swiftSettings: [.unsafeFlags(["-Xcc", "-I\(llamaInclude)", "-Xcc", "-I\(ggmlInclude)"])],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("InputMethodKit"),
+                .linkedFramework("SwiftUI"),
             ]
         ),
-        .testTarget(
-            name: "PinyinLatticeTests",
-            dependencies: ["PinyinLattice"]
+        // 调音 · tuning: the command-line tool for conversion, evaluation, benchmarks.
+        .executableTarget(
+            name: "Tiaoyin",
+            dependencies: ["ZhiyinCore", "ZhiyinListener"],
+            swiftSettings: [.unsafeFlags(["-Xcc", "-I\(llamaInclude)", "-Xcc", "-I\(ggmlInclude)"])]
         ),
         .testTarget(
-            name: "BackboneEngineTests",
-            dependencies: ["BackboneEngine"]
-        ),
-        .testTarget(
-            name: "InputSessionCoreTests",
-            dependencies: ["InputSessionCore"]
-        ),
-        .testTarget(
-            name: "LLMRankerTests",
-            dependencies: ["LLMRanker", "IPCProtocol"]
+            name: "ZhiyinCoreTests",
+            dependencies: ["ZhiyinCore"],
+            swiftSettings: [.unsafeFlags(["-Xcc", "-I\(llamaInclude)", "-Xcc", "-I\(ggmlInclude)"])]
         ),
     ],
     swiftLanguageModes: [.v5]

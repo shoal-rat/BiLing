@@ -1,13 +1,13 @@
 .DS_Store
 .build/
 dist/
-DerivedData/
 *.log
 *.swp
-*.xcuserstate
-scripts/__pycache__/
+__pycache__/
 *.py[cod]
-
+Resources/Brand/AppIcon.iconset/
 # Derived evaluation corpora are third-party text; regenerate with
-# scripts/build_eval_corpus.py --fetch
+# Tools/zhuoqin/derive_eval.py
 Tests/Corpus/derived-*.tsv
+# Results of evaluation runs (per-item outputs)
+Docs/results/*.per-item.tsv

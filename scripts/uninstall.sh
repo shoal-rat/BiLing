@@ -1,29 +1,16 @@
 #!/bin/zsh
+# Removes 知音: disables the input source and moves the app to the Trash.
+# 默契 (your learned choices) stays in ~/Library/Application Support/Zhiyin
+# unless you pass --forget; its sealing key stays in the Keychain likewise.
 set -euo pipefail
-
-labels=(
-  "com.biling.inputmethod.app"
-  "com.biling.inputmethod.engine"
-)
-installed_app="$HOME/Library/Input Methods/BiLing.app"
-trash_dir="$HOME/.Trash"
-timestamp=$(date +%Y%m%d-%H%M%S)
-
-for label in "${labels[@]}"; do
-  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-done
-killall BiLingApp 2>/dev/null || true
-
-if [[ -e "$installed_app" ]]; then
-  mv "$installed_app" "$trash_dir/BiLing-$timestamp.app"
-  print "Moved BiLing.app to Trash."
+app="$HOME/Library/Input Methods/Zhiyin.app"
+[[ -x "$app/Contents/MacOS/Zhiyin" ]] && "$app/Contents/MacOS/Zhiyin" --disable || true
+killall Zhiyin 2>/dev/null || true
+if [[ -e "$app" ]]; then
+  osascript -e "tell application \"Finder\" to delete POSIX file \"$app\"" >/dev/null && print "Moved Zhiyin.app to the Trash."
 fi
-for label in "${labels[@]}"; do
-  launch_plist="$HOME/Library/LaunchAgents/$label.plist"
-  if [[ -e "$launch_plist" ]]; then
-    mv "$launch_plist" "$trash_dir/$label-$timestamp.plist"
-    print "Moved $label LaunchAgent to Trash."
-  fi
-done
-killall TextInputMenuAgent 2>/dev/null || true
-print "Personal learning data remains in ~/Library/Application Support/BiLing."
+if [[ "${1:-}" == "--forget" ]]; then
+  rm -rf "$HOME/Library/Application Support/Zhiyin"
+  security delete-generic-password -s com.zhiyin.inputmethod.moqi >/dev/null 2>&1 || true
+  print "默契 forgotten."
+fi
