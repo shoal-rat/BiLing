@@ -17,7 +17,8 @@ enum Fixtures {
     static func ends(_ keys: String, _ text: String) -> [Int] {
         let reader = KeyReader(keys, syllables: syllables)
         let matches = qinpu.trie.walk(reader, from: 0, maxChars: 8)
-        return Set(matches.filter { qinpu.trie.text(Int($0.entry)) == text }.map { Int($0.end) }).sorted()
+        // Clean readings only; slips are tested on their own.
+        return Set(matches.filter { $0.slips == 0 && qinpu.trie.text(Int($0.entry)) == text }.map { Int($0.end) }).sorted()
     }
 }
 
@@ -39,8 +40,13 @@ enum Fixtures {
 
     @Test func prefixOnlyAtTheEnd() {
         #expect(Fixtures.ends("jilindaxu", "吉林大学").contains(9))
-        // A prefix in the middle is not a reading.
-        #expect(!Fixtures.ends("jilindaxuxiao", "吉林大学").contains(9))
+        // A prefix in the middle is not a clean reading; it can only be a
+        // slip (the e of xue missed), which is priced as one.
+        let reader = KeyReader("jilindaxuxiao", syllables: Fixtures.syllables)
+        let mid = Fixtures.qinpu.trie.walk(reader, from: 0).filter {
+            Fixtures.qinpu.trie.text(Int($0.entry)) == "吉林大学" && $0.end == 9
+        }
+        #expect(mid.allSatisfy { $0.slips == 1 })
     }
 
     @Test func apostropheSeparates() {
@@ -148,5 +154,26 @@ enum Fixtures {
         #expect(!Moqi.learnable(keys: "x", text: "13800138000"))
         #expect(!Moqi.learnable(keys: "vscode", text: "VS Code"))
         #expect(Moqi.learnable(keys: "zhiyin", text: "知音"))
+    }
+}
+
+@Suite struct Slips {
+    func top(_ keys: String) -> [String] {
+        let q = Fixtures.qinpu
+        return q.decode(KeyReader(keys, syllables: q.syllables)).map(\.text)
+    }
+
+    @Test func neighbourKey() { #expect(top("nihap").prefix(3).contains("你好")) }
+    @Test func swappedLetters() { #expect(top("nihoa").prefix(3).contains("你好")) }
+    @Test func missingLetter() { #expect(top("zhogguo").prefix(3).contains("中国")) }
+    @Test func extraLetter() { #expect(top("niihao").prefix(3).contains("你好")) }
+    @Test func exactReadingsStillWin() {
+        #expect(top("nihao").first == "你好")
+        #expect(top("zhongguo").first == "中国")
+    }
+    @Test func neighbourTable() {
+        #expect(KeyReader.near(UInt8(ascii: "o"), UInt8(ascii: "i")))
+        #expect(KeyReader.near(UInt8(ascii: "g"), UInt8(ascii: "b")))
+        #expect(!KeyReader.near(UInt8(ascii: "q"), UInt8(ascii: "p")))
     }
 }

@@ -27,10 +27,11 @@ final class Runtime {
         qinpu = try? Qinpu(path: data.appendingPathComponent("qinpu.trie").path)
         try? FileManager.default.createDirectory(at: Runtime.supportDirectory, withIntermediateDirectories: true)
         moqi = Moqi(directory: Runtime.supportDirectory)
-        let model = resources.appendingPathComponent("Models/ziqi.gguf").path
+        let model = resources.appendingPathComponent("Models/ziqi-base.gguf").path
+        let adapter = resources.appendingPathComponent("Models/ziqi-tingyin.gguf").path
         let vocab = data.appendingPathComponent("ziqi-vocab.trie").path
         if FileManager.default.fileExists(atPath: model), FileManager.default.fileExists(atPath: vocab) {
-            listener = ListenerService(modelPath: model, vocabularyPath: vocab)
+            listener = ListenerService(modelPath: model, adapterPath: adapter, vocabularyPath: vocab)
         } else {
             listener = nil
             listenerState = .absent("模型文件缺失")
@@ -55,10 +56,11 @@ final class Runtime {
     func applyPreferences() {
         let prefs = Preferences.shared
         guard let listener else { return }
-        var config = listener.config
-        config.beam = prefs.attentive ? 6 : 3
+        var config = Ziqi.Config()
+        // 细听: both ears, a wide beam. 轻听: both ears, a narrow beam.
+        config.beam = prefs.attentive ? 10 : 5
         config.results = prefs.attentive ? 8 : 5
-        listener.config = config
+        listener.config = FileManager.default.fileExists(atPath: listener.adapterPath ?? "") ? config : nil
         listener.idleRelease = TimeInterval(max(1, prefs.restAfterMinutes)) * 60
     }
 

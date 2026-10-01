@@ -21,8 +21,9 @@ public final class ListenerService: @unchecked Sendable {
     }
 
     public let modelPath: String
+    public let adapterPath: String?
     public let vocabularyPath: String
-    public var config: Ziqi.Config
+    public var config: Ziqi.Config?
     /// Release the model after this long without a request.
     public var idleRelease: TimeInterval = 15 * 60
 
@@ -35,8 +36,9 @@ public final class ListenerService: @unchecked Sendable {
 
     public var onStateChange: (@Sendable (State) -> Void)?
 
-    public init(modelPath: String, vocabularyPath: String, config: Ziqi.Config = Ziqi.Config()) {
+    public init(modelPath: String, adapterPath: String?, vocabularyPath: String, config: Ziqi.Config? = nil) {
         self.modelPath = modelPath
+        self.adapterPath = adapterPath
         self.vocabularyPath = vocabularyPath
         self.config = config
     }
@@ -66,7 +68,7 @@ public final class ListenerService: @unchecked Sendable {
         if case .absent = state, failures >= 3 { return nil }
         setState(.arriving)
         do {
-            let z = try Ziqi(modelPath: modelPath, vocabularyPath: vocabularyPath, config: config)
+            let z = try Ziqi(modelPath: modelPath, adapterPath: adapterPath, vocabularyPath: vocabularyPath, config: config)
             ziqi = z
             failures = 0
             setState(.listening)
@@ -93,7 +95,7 @@ public final class ListenerService: @unchecked Sendable {
                 DispatchQueue.main.async { completion(nil, nil) }
                 return
             }
-            z.config = config
+            if let config { z.config = config }
             let answer = z.listen(context: context, keys: keys) { !isCurrent() }
             scheduleRelease()
             let heard = answer.map { a in

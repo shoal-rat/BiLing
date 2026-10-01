@@ -44,6 +44,31 @@ INVENTORY = sorted(SYLLABLES)
 SID = {s: i for i, s in enumerate(INVENTORY)}
 
 
+_SIMPLIFIED: set[str] | None = None
+
+
+def simplified(ch: str) -> bool:
+    """A character 知音 may write: GB2312, or common in our (simplified) corpora.
+
+    The model's vocabulary and the Rime tables both carry traditional forms;
+    without this the decoder happily writes 發佈會 for fabuhui.
+    """
+    global _SIMPLIFIED
+    if _SIMPLIFIED is None:
+        counts_path = Path(__file__).resolve().parents[3] / "work" / "word_counts.json"
+        extra: dict[str, int] = {}
+        if counts_path.exists():
+            for w, n in json.loads(counts_path.read_text()).items():
+                for c in w:
+                    extra[c] = extra.get(c, 0) + n
+        _SIMPLIFIED = {c for c, n in extra.items() if n >= 30}
+    try:
+        ch.encode("gb2312")
+        return True
+    except UnicodeEncodeError:
+        return ch in _SIMPLIFIED
+
+
 class Node:
     __slots__ = ("char", "children", "entries")
 
@@ -144,9 +169,11 @@ def build_vocab(tokenizer_path: Path, out: Path) -> None:
     latin_rows: list[tuple[str, int]] = []
     for tid in range(151643):
         s = tok.decode([tid])
-        if HAN.match(s) and all(char_readings(c) for c in s):
+        if HAN.match(s) and all(char_readings(c) and simplified(c) for c in s):
             insert(root, s, tid, 0.0)
-        elif LATIN.match(s) and len(s.strip()) >= 2:
+        elif LATIN.match(s) and (len(s.strip()) >= 2 or s.strip().isupper()):
+            # Single letters only in capitals (K歌, B站, 栓Q): a lone lowercase
+            # letter is an initial, never Latin output.
             latin_rows.append((s.strip().lower(), tid))
     strings = bytearray()
     latin: list[tuple[int, int]] = []
@@ -196,7 +223,7 @@ def build_words(lexicon_dir: Path, counts_path: Path | None, out: Path, max_word
                 continue
             if not all(s in SYLLABLES for s in syllables):
                 continue
-            if not all(char_readings(c) for c in text):
+            if not all(char_readings(c) and simplified(c) for c in text):
                 continue
             rime[text] = max(rime.get(text, 0.0), weight * boost)
     corpus: dict[str, float] = {}
@@ -217,11 +244,21 @@ def build_words(lexicon_dir: Path, counts_path: Path | None, out: Path, max_word
         else:
             weights[w] = min(r * scale, cap) + 0.1
     for w, c in corpus.items():
-        if w not in weights and HAN.match(w) and len(w) <= 8 and all(char_readings(ch) for ch in w):
+        if w not in weights and HAN.match(w) and len(w) <= 8 and all(char_readings(ch) and simplified(ch) for ch in w):
             weights[w] = c + 0.5
+    # 新词包: words people use now that older dictionaries lack.
+    xinci = Path(__file__).resolve().parent / "xinci" / "words.txt"
+    if xinci.exists():
+        floor = sorted(weights.values())[-20000] if len(weights) > 20000 else 1000.0
+        for line in xinci.read_text(encoding="utf-8").splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            word = line.split()[0]
+            if HAN.match(word) and all(char_readings(c) for c in word):
+                weights[word] = max(weights.get(word, 0.0), floor)
     # Every typeable character is reachable on its own.
     for ch, readings in ((c, char_readings(c)) for c in map(chr, range(0x4E00, 0xA000))):
-        if readings and ch not in weights:
+        if readings and ch not in weights and simplified(ch):
             weights[ch] = 0.05
     ranked = sorted(weights.items(), key=lambda kv: -kv[1])
     singles = [kv for kv in ranked if len(kv[0]) == 1]

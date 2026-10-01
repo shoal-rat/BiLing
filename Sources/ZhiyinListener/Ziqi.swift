@@ -5,30 +5,60 @@ import ZhiyinCore
 
 /// 子期 · The listener.
 ///
-/// 钟子期 understood what 伯牙 meant from the sound of his qin alone. This is
-/// the fine-tuned model that does the same for keys: it reads the text before
-/// the caret and the raw keys, and writes what you mean.
+/// 钟子期 understood what 伯牙 meant from the sound of his qin alone. 子期
+/// listens to keys with two ears over one base model (Qwen3-0.6B):
 ///
-/// Decoding is a constrained beam search. Only tokens the keys can spell are
-/// ever considered (CharTrie.walk with the three rules of 弦), so the model
-/// cannot invent text you did not type — it can only choose. The search is
-/// token-synchronous: every live hypothesis has the same length, which lets
-/// all of them run as one batch of single-token sequences that share the
-/// prompt's KV cells.
+/// * **听音** (tingyin) — the base model with a LoRA adapter trained to read
+///   raw keys. It sees `[context] <keys> k e y s <out>` and knows which
+///   letters it has read, which are initials, where the user is mid-syllable.
+/// * **知意** (zhiyi) — the plain base model. It never sees the keys; it only
+///   knows what reads as natural Chinese after the context. Fine-tuning blunts
+///   that knowledge, so it is kept whole in a second context.
+///
+/// Every candidate token is scored by both ears — a product of experts — and
+/// priced by a typing channel (reading a character by its initial, or through
+/// a slip of the finger, costs a little). Only tokens the keys can spell are
+/// ever considered (CharTrie.walk with the rules of 弦), so 子期 can only
+/// choose, never invent.
+///
+/// The search is token-synchronous: every live hypothesis has the same
+/// number of output tokens, so all of them go to the GPU as one batch of
+/// single-token sequences sharing the prompt's KV cells. A keystroke appends
+/// one key token to 听音's prompt; 知意's prompt does not change at all.
 ///
 /// Not thread-safe: own it from one serial queue (see ListenerService).
 public final class Ziqi {
     public struct Config: Sendable {
-        public var beam = 6
+        public var beam = 10
         public var results = 8
-        /// Score bonus per character read, so a hypothesis that has read more
-        /// of the keys is not ranked down for having already paid for it.
-        public var charReward: Float = 1.0
-        /// Extra cost of a Latin token (keeps pinyin from turning into English).
-        public var latinPenalty: Float = 2.5
+        /// Weight of each ear's log-probability.
+        public var tingWeight: Float = 1.0
+        public var zhiWeight: Float = 0.6
+        /// Partial hypotheses are ranked by score + perKey × keys read, so one
+        /// that has read more of the keys is not ranked down for having paid.
+        public var perKey: Float = 1.0
+        /// Typing channel: cost of a character read by initial or prefix…
+        public var abbreviationCost: Float = 1.0
+        /// …and of a character read through a slip (走音: neighbour key,
+        /// swapped, missing or doubled letter).
+        public var slipCost: Float = 5.0
+        /// Cost of a Latin token (keeps pinyin from turning into English).
+        public var latinCost: Float = 3.0
         public var contextScalars = 48
         public var gpuLayers: Int32 = -1
         public init() {}
+
+        /// Settings for the 知意 ear alone (no adapter): without the keys in
+        /// view, abbreviations must cost more and the search must be wider.
+        public static var zhiOnly: Config {
+            var c = Config()
+            c.tingWeight = 0
+            c.zhiWeight = 1
+            c.perKey = 1.2
+            c.abbreviationCost = 2.5
+            c.beam = 12
+            return c
+        }
     }
 
     public struct Result: Sendable, Hashable {
@@ -37,8 +67,8 @@ public final class Ziqi {
         public let tokens: [Int32]
     }
 
-    /// A first token the model considered, ranked in context: these become
-    /// the "pick part of the input" candidates.
+    /// A first token considered, ranked in context: these become the
+    /// "pick part of the input" candidates.
     public struct Lead: Sendable, Hashable {
         public let text: String
         public let end: Int
@@ -54,15 +84,16 @@ public final class Ziqi {
         public let steps: Int
         public let promptTokens: Int
         public let decodedPromptTokens: Int
-        /// Time spent inside llama_decode (GPU), the rest is search bookkeeping.
+        /// Time inside llama_decode (GPU); the rest is search bookkeeping.
         public let decodeMilliseconds: Double
     }
 
     public enum LoadError: Error, CustomStringConvertible {
-        case model(String), context, vocabulary(String)
+        case model(String), adapter(String), context, vocabulary(String)
         public var description: String {
             switch self {
             case .model(let p): return "子期 could not load the model at \(p)"
+            case .adapter(let p): return "子期 could not load the 听音 adapter at \(p)"
             case .context: return "子期 could not create an inference context"
             case .vocabulary(let why): return "子期's vocabulary table is unusable: \(why)"
             }
@@ -72,76 +103,211 @@ public final class Ziqi {
     // Prompt layout — must match Tools/zhuoqin/fmt.py byte for byte.
     static let keysMarker: llama_token = 151659 // <|fim_prefix|>
     static let outMarker: llama_token = 151660 // <|fim_middle|>
+    static let endOfText: llama_token = 151643 // <|endoftext|>
     static let letterBase: llama_token = 64 // 'a'
     static let apostropheToken: llama_token = 6
 
     public var config: Config
     public let description: String
+    public let hasTingyin: Bool
     private let model: OpaquePointer
-    private let ctx: OpaquePointer
     private let vocab: OpaquePointer
     private let trie: CharTrie
     private let vocabularySize: Int
-    private var batch: llama_batch
-    private let batchCapacity: Int32 = 512
     private let maxSequences: Int32
-
-    private var cachedPrompt: [llama_token] = []
-    private var cachedLogits: [Float] = []
+    private var ting: Ear?
+    private var zhi: Ear?
     private var pieces: [llama_token: String] = [:]
-    private var scratch: [Float]
 
-    public init(modelPath: String, vocabularyPath: String, config: Config = Config()) throws {
-        self.config = config
+    /// One context over the shared model, with its prompt cached in
+    /// sequence 0 and candidate hypotheses in sequences 1…beam.
+    final class Ear {
+        let ctx: OpaquePointer
+        var batch: llama_batch
+        let capacity: Int32 = 512
+        var cachedPrompt: [llama_token] = []
+        var cachedLogits: [Float] = []
+        var scratch: [Float]
+        let vocabularySize: Int
+
+        init(ctx: OpaquePointer, vocabularySize: Int) {
+            self.ctx = ctx
+            self.vocabularySize = vocabularySize
+            batch = llama_batch_init(capacity, 0, 1)
+            scratch = [Float](repeating: 0, count: vocabularySize)
+        }
+
+        deinit {
+            llama_batch_free(batch)
+            llama_free(ctx)
+        }
+
+        var memory: llama_memory_t { llama_get_memory(ctx) }
+
+        /// Makes sequence 0 hold exactly `prompt`, leaving the next-token
+        /// logits in `cachedLogits`. Returns how many tokens were decoded.
+        func refresh(_ prompt: [llama_token]) -> Int? {
+            var common = 0
+            let limit = min(prompt.count, cachedPrompt.count)
+            while common < limit, prompt[common] == cachedPrompt[common] { common += 1 }
+            if common == prompt.count, common == cachedPrompt.count, !cachedLogits.isEmpty { return 0 }
+            let start = min(common, prompt.count - 1)
+            llama_memory_seq_rm(memory, 0, llama_pos(start), -1)
+            var position = start
+            while position < prompt.count {
+                let chunk = min(Int(capacity), prompt.count - position)
+                batch.n_tokens = Int32(chunk)
+                for i in 0..<chunk {
+                    batch.token[i] = prompt[position + i]
+                    batch.pos[i] = llama_pos(position + i)
+                    batch.n_seq_id[i] = 1
+                    batch.seq_id[i]![0] = 0
+                    batch.logits[i] = (position + i == prompt.count - 1) ? 1 : 0
+                }
+                if llama_decode(ctx, batch) != 0 {
+                    reset()
+                    return nil
+                }
+                position += chunk
+            }
+            guard let logits = llama_get_logits_ith(ctx, -1) else { return nil }
+            cachedLogits = Array(UnsafeBufferPointer(start: logits, count: vocabularySize))
+            cachedPrompt = prompt
+            return prompt.count - start
+        }
+
+        func clearCandidates(_ maxSequences: Int32) {
+            for s in 1..<maxSequences { llama_memory_seq_rm(memory, s, -1, -1) }
+        }
+
+        func reset() {
+            cachedPrompt = []
+            cachedLogits = []
+            llama_memory_clear(memory, true)
+        }
+
+        /// Decodes one token per child, (token, sequence), at `position`.
+        func step(_ children: [(llama_token, Int32)], position: llama_pos) -> Bool {
+            batch.n_tokens = Int32(children.count)
+            for (i, child) in children.enumerated() {
+                batch.token[i] = child.0
+                batch.pos[i] = position
+                batch.n_seq_id[i] = 1
+                batch.seq_id[i]![0] = child.1
+                batch.logits[i] = 1
+            }
+            let ok = llama_decode(ctx, batch) == 0
+            llama_synchronize(ctx)
+            return ok
+        }
+
+        /// log Σ exp(row), vectorised.
+        func logSumExp(_ row: UnsafePointer<Float>) -> Float {
+            var maximum: Float = 0
+            vDSP_maxv(row, 1, &maximum, vDSP_Length(vocabularySize))
+            var negative = -maximum
+            var sum: Float = 0
+            let n = vocabularySize
+            scratch.withUnsafeMutableBufferPointer { buf in
+                vDSP_vsadd(row, 1, &negative, buf.baseAddress!, 1, vDSP_Length(n))
+                var count = Int32(n)
+                vvexpf(buf.baseAddress!, buf.baseAddress!, &count)
+                vDSP_sve(buf.baseAddress!, 1, &sum, vDSP_Length(n))
+            }
+            return maximum + log(sum)
+        }
+
+        /// Calls `body` with a hypothesis's logit row (row < 0: the prompt's
+        /// own next-token row) and its log-normaliser.
+        func withRow(_ row: Int32, _ body: (UnsafePointer<Float>, Float) -> Void) -> Bool {
+            if row < 0 {
+                cachedLogits.withUnsafeBufferPointer { body($0.baseAddress!, logSumExp($0.baseAddress!)) }
+                return true
+            }
+            guard let p = llama_get_logits_ith(ctx, row) else { return false }
+            body(UnsafePointer(p), logSumExp(UnsafePointer(p)))
+            return true
+        }
+    }
+
+    public init(modelPath: String, adapterPath: String?, vocabularyPath: String, config: Config? = nil) throws {
         trie = try CharTrie(path: vocabularyPath)
         guard trie.kind == .tokens else { throw LoadError.vocabulary("not a token trie") }
 
         Ziqi.backendOnce
         var modelParams = llama_model_default_params()
-        modelParams.n_gpu_layers = config.gpuLayers
+        modelParams.n_gpu_layers = (config ?? Config()).gpuLayers
         modelParams.use_mmap = true
         guard let model = llama_model_load_from_file(modelPath, modelParams) else {
             throw LoadError.model(modelPath)
         }
-        maxSequences = Int32(config.beam + 1)
-        var contextParams = llama_context_default_params()
-        contextParams.n_ctx = 2048
-        contextParams.n_batch = UInt32(batchCapacity)
-        contextParams.n_ubatch = UInt32(batchCapacity)
-        contextParams.n_seq_max = UInt32(maxSequences)
-        contextParams.n_threads = 4
-        contextParams.n_threads_batch = 4
-        contextParams.kv_unified = true
-        contextParams.offload_kqv = true
-        contextParams.no_perf = true
-        contextParams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO
-        guard let context = llama_init_from_model(model, contextParams) else {
+        self.model = model
+        vocab = llama_model_get_vocab(model)
+        vocabularySize = Int(llama_vocab_n_tokens(vocab))
+
+        var adapter: OpaquePointer?
+        if let adapterPath, FileManager.default.fileExists(atPath: adapterPath) {
+            adapter = llama_adapter_lora_init(model, adapterPath)
+            if adapter == nil {
+                llama_model_free(model)
+                throw LoadError.adapter(adapterPath)
+            }
+        }
+        hasTingyin = adapter != nil
+        let chosen = config ?? (adapter != nil ? Config() : Config.zhiOnly)
+        self.config = chosen
+        maxSequences = Int32(max(chosen.beam, 12) + 1)
+        let sequences = maxSequences
+
+        func makeContext() -> OpaquePointer? {
+            var p = llama_context_default_params()
+            p.n_ctx = 2048
+            p.n_batch = 512
+            p.n_ubatch = 512
+            p.n_seq_max = UInt32(sequences)
+            p.n_threads = 4
+            p.n_threads_batch = 4
+            p.kv_unified = true
+            p.offload_kqv = true
+            p.no_perf = true
+            p.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO
+            return llama_init_from_model(model, p)
+        }
+        guard let zhiContext = makeContext() else {
             llama_model_free(model)
             throw LoadError.context
         }
-        self.model = model
-        self.ctx = context
-        vocab = llama_model_get_vocab(model)
-        vocabularySize = Int(llama_vocab_n_tokens(vocab))
-        scratch = [Float](repeating: 0, count: vocabularySize)
-        batch = llama_batch_init(batchCapacity, 0, 1)
+        zhi = Ear(ctx: zhiContext, vocabularySize: vocabularySize)
+        if let adapter {
+            guard let tingContext = makeContext() else {
+                zhi = nil
+                llama_model_free(model)
+                throw LoadError.context
+            }
+            var adapters: [OpaquePointer?] = [adapter]
+            var scales: [Float] = [1.0]
+            _ = llama_set_adapters_lora(tingContext, &adapters, 1, &scales)
+            ting = Ear(ctx: tingContext, vocabularySize: vocabularySize)
+        }
 
         var buffer = [CChar](repeating: 0, count: 160)
         llama_model_desc(model, &buffer, buffer.count)
         let name = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         let megabytes = Double(llama_model_size(model)) / 1_048_576
-        description = "\(name) · \(Int(megabytes)) MB"
+        description = "\(name) · \(Int(megabytes)) MB · \(adapter != nil ? "听音+知意" : "知意")"
     }
 
     deinit {
-        llama_batch_free(batch)
-        llama_free(ctx)
+        // Contexts first; the model (and its adapter) must outlive them.
+        ting = nil
+        zhi = nil
         llama_model_free(model)
     }
 
     private static let backendOnce: Void = {
         llama_log_set({ level, text, _ in
-            guard level.rawValue >= GGML_LOG_LEVEL_ERROR.rawValue, let text else { return }
+            // Errors only; CONT (continuation dots) ranks above ERROR numerically.
+            guard level == GGML_LOG_LEVEL_ERROR, let text else { return }
             FileHandle.standardError.write(Data(("子期: " + String(cString: text)).utf8))
         }, nil)
         llama_backend_init()
@@ -149,7 +315,7 @@ public final class Ziqi {
 
     public var syllables: SyllableTable { trie.syllables }
 
-    // MARK: - Prompt
+    // MARK: - Prompts
 
     func tokenize(_ text: String) -> [llama_token] {
         guard !text.isEmpty else { return [] }
@@ -171,18 +337,27 @@ public final class Ziqi {
         return Array(tokens.prefix(Int(max(0, n))))
     }
 
-    func prompt(context: String, keys: [UInt8]) -> [llama_token] {
+    func clip(_ context: String) -> String {
         let scalars = context.unicodeScalars
-        let clipped = scalars.count > config.contextScalars
+        return scalars.count > config.contextScalars
             ? String(String.UnicodeScalarView(scalars.suffix(config.contextScalars)))
             : context
-        var tokens = tokenize(clipped)
+    }
+
+    /// 听音's prompt: context, then every key as its own token.
+    func tingPrompt(_ context: [llama_token], keys: [UInt8]) -> [llama_token] {
+        var tokens = context
         tokens.append(Ziqi.keysMarker)
         for k in keys {
             tokens.append(k == KeyReader.apostrophe ? Ziqi.apostropheToken : Ziqi.letterBase + llama_token(k) - 97)
         }
         tokens.append(Ziqi.outMarker)
         return tokens
+    }
+
+    /// 知意's prompt: the context alone, after a document boundary.
+    func zhiPrompt(_ context: [llama_token]) -> [llama_token] {
+        [Ziqi.endOfText] + context
     }
 
     func piece(_ token: llama_token) -> String {
@@ -196,75 +371,20 @@ public final class Ziqi {
         return text
     }
 
-    // MARK: - KV cache for the prompt (sequence 0)
-
-    /// Makes sequence 0 hold exactly `prompt` and leaves the next-token
-    /// logits after it in `cachedLogits`. Only the divergent suffix is decoded:
-    /// a keystroke adds two tokens (the key and the output marker).
-    private func refreshPrompt(_ prompt: [llama_token]) -> Int? {
-        let memory = llama_get_memory(ctx)
-        var common = 0
-        let limit = min(prompt.count, cachedPrompt.count)
-        while common < limit, prompt[common] == cachedPrompt[common] { common += 1 }
-        if common == prompt.count, common == cachedPrompt.count, !cachedLogits.isEmpty {
-            return 0
-        }
-        let start = min(common, prompt.count - 1)
-        llama_memory_seq_rm(memory, 0, llama_pos(start), -1)
-        var position = start
-        while position < prompt.count {
-            let chunk = min(Int(batchCapacity), prompt.count - position)
-            batch.n_tokens = Int32(chunk)
-            for i in 0..<chunk {
-                batch.token[i] = prompt[position + i]
-                batch.pos[i] = llama_pos(position + i)
-                batch.n_seq_id[i] = 1
-                batch.seq_id[i]![0] = 0
-                batch.logits[i] = (position + i == prompt.count - 1) ? 1 : 0
-            }
-            if llama_decode(ctx, batch) != 0 {
-                cachedPrompt = []
-                cachedLogits = []
-                llama_memory_clear(memory, true)
-                return nil
-            }
-            position += chunk
-        }
-        guard let logits = llama_get_logits_ith(ctx, -1) else { return nil }
-        cachedLogits = Array(UnsafeBufferPointer(start: logits, count: vocabularySize))
-        cachedPrompt = prompt
-        return prompt.count - start
-    }
-
-    /// log Σ exp(row), vectorised.
-    private func logSumExp(_ row: UnsafePointer<Float>) -> Float {
-        var maximum: Float = 0
-        vDSP_maxv(row, 1, &maximum, vDSP_Length(vocabularySize))
-        var negative = -maximum
-        var sum: Float = 0
-        scratch.withUnsafeMutableBufferPointer { buf in
-            vDSP_vsadd(row, 1, &negative, buf.baseAddress!, 1, vDSP_Length(vocabularySize))
-            var n = Int32(vocabularySize)
-            vvexpf(buf.baseAddress!, buf.baseAddress!, &n)
-            vDSP_sve(buf.baseAddress!, 1, &sum, vDSP_Length(vocabularySize))
-        }
-        return maximum + log(sum)
-    }
-
     // MARK: - Search
 
     struct Option {
         let token: llama_token
         let end: Int
-        let chars: Int
-        let latin: Bool
+        let cost: Float
+        let slips: Int
     }
 
     struct Hypothesis {
         var tokens: [llama_token]
         var position: Int
         var logp: Float
-        var chars: Int
+        var slips: Int
         var sequence: Int32
         var row: Int32
     }
@@ -273,10 +393,15 @@ public final class Ziqi {
         if let hit = cache[p] { return hit }
         var out: [Option] = []
         for m in trie.walk(reader, from: p, maxChars: 4) {
-            out.append(Option(token: llama_token(trie.payload(Int(m.entry))), end: Int(m.end), chars: Int(m.chars), latin: false))
+            out.append(Option(
+                token: llama_token(trie.payload(Int(m.entry))),
+                end: Int(m.end),
+                cost: config.abbreviationCost * Float(m.abbreviated) + config.slipCost * Float(m.slips),
+                slips: Int(m.slips)
+            ))
         }
         for (token, end) in trie.latinMatches(reader, from: p) {
-            out.append(Option(token: llama_token(token), end: end, chars: max(1, (end - p) / 3), latin: true))
+            out.append(Option(token: llama_token(token), end: end, cost: config.latinCost, slips: 0))
         }
         cache[p] = out
         return out
@@ -290,50 +415,66 @@ public final class Ziqi {
         guard !keyBytes.isEmpty,
               keyBytes.allSatisfy({ ($0 >= 97 && $0 <= 122) || $0 == KeyReader.apostrophe }) else { return nil }
         let reader = KeyReader(keyBytes, syllables: trie.syllables)
-        let promptTokens = prompt(context: context, keys: keyBytes)
-        guard promptTokens.count < 1200 else { return nil }
-        var decodeNanos: UInt64 = 0
-        let promptStarted = DispatchTime.now().uptimeNanoseconds
-        guard let decodedPrompt = refreshPrompt(promptTokens) else { return nil }
-        decodeNanos += DispatchTime.now().uptimeNanoseconds - promptStarted
+        let contextTokens = tokenize(clip(context))
+        let ting = config.tingWeight > 0 ? self.ting : nil
+        let zhi = (config.zhiWeight > 0 || ting == nil) ? self.zhi : nil
+        let tingWeight = config.tingWeight
+        let zhiWeight = ting == nil ? 1 : config.zhiWeight
+        let tingTokens = tingPrompt(contextTokens, keys: keyBytes)
+        let zhiTokens = zhiPrompt(contextTokens)
+        let ears = [ting, zhi].compactMap { $0 }
+        guard !ears.isEmpty else { return nil }
 
-        let memory = llama_get_memory(ctx)
-        for s in 1..<maxSequences { llama_memory_seq_rm(memory, s, -1, -1) }
+        var decodeNanos: UInt64 = 0
+        var decodedPrompt = 0
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        if let ting {
+            guard let n = ting.refresh(tingTokens) else { return nil }
+            decodedPrompt += n
+        }
+        if let zhi {
+            guard let n = zhi.refresh(zhiTokens) else { return nil }
+            decodedPrompt += n
+        }
+        for ear in ears { ear.clearCandidates(maxSequences) }
+        decodeNanos += DispatchTime.now().uptimeNanoseconds - t0
 
         let n = keyBytes.count
         let beam = config.beam
-        var live = [Hypothesis(tokens: [], position: 0, logp: 0, chars: 0, sequence: 0, row: -1)]
+        var live = [Hypothesis(tokens: [], position: 0, logp: 0, slips: 0, sequence: 0, row: -1)]
         var finished: [String: Result] = [:]
         var leads: [Lead] = []
         var optionCache: [Int: [Option]] = [:]
         var freeSequences = Array((1..<maxSequences).reversed())
         var steps = 0
+        let maxSlips = KeyReader.maxSlips
+
+        func release() { for ear in ears { ear.clearCandidates(maxSequences) } }
 
         for step in 0..<(n + 2) {
-            if isCancelled() { return nil }
+            if isCancelled() { release(); return nil }
             struct Expansion { let score: Float; let rank: Float; let option: Option; let parent: Int }
             var expansions: [Expansion] = []
             for (index, h) in live.enumerated() {
                 let opts = options(reader, at: h.position, cache: &optionCache)
                 guard !opts.isEmpty else { continue }
-                func expand(_ row: UnsafePointer<Float>) {
-                    let normaliser = logSumExp(row)
-                    for o in opts {
-                        let score = h.logp + row[Int(o.token)] - normaliser - (o.latin ? config.latinPenalty : 0)
-                        let chars = h.chars + o.chars
-                        expansions.append(Expansion(
-                            score: score, rank: score + config.charReward * Float(chars), option: o, parent: index
-                        ))
-                        if step == 0 {
-                            leads.append(Lead(text: piece(o.token), end: o.end, logp: score))
-                        }
+                var combined = [Float](repeating: 0, count: opts.count)
+                if let ting {
+                    let ok = ting.withRow(h.row) { row, z in
+                        for (i, o) in opts.enumerated() { combined[i] += tingWeight * (row[Int(o.token)] - z) }
                     }
+                    guard ok else { release(); return nil }
                 }
-                if h.row < 0 {
-                    cachedLogits.withUnsafeBufferPointer { expand($0.baseAddress!) }
-                } else {
-                    guard let p = llama_get_logits_ith(ctx, h.row) else { return nil }
-                    expand(UnsafePointer(p))
+                if let zhi {
+                    let ok = zhi.withRow(h.row) { row, z in
+                        for (i, o) in opts.enumerated() { combined[i] += zhiWeight * (row[Int(o.token)] - z) }
+                    }
+                    guard ok else { release(); return nil }
+                }
+                for (i, o) in opts.enumerated() where h.slips + o.slips <= maxSlips {
+                    let score = h.logp + combined[i] - o.cost
+                    expansions.append(Expansion(score: score, rank: score + config.perKey * Float(o.end), option: o, parent: index))
+                    if step == 0 { leads.append(Lead(text: piece(o.token), end: o.end, logp: score)) }
                 }
             }
             if expansions.isEmpty { break }
@@ -351,97 +492,70 @@ public final class Ziqi {
                     }
                     continue
                 }
-                if next.count < beam, e.score > bestFinal - 12 {
-                    next.append((e.parent, e.option, e.score))
-                }
+                if next.count < beam { next.append((e.parent, e.option, e.score)) }
                 if next.count >= beam, finished.count >= config.results { break }
             }
             if next.isEmpty { break }
-            if !finished.isEmpty, finished.count >= 3, next.allSatisfy({ $0.score < bestFinal - 6 }) { break }
+            if !finished.isEmpty, next.allSatisfy({ $0.score < bestFinal - 8 }) { break }
 
-            // Re-assign KV sequences: dead parents release theirs; the first
-            // child inherits its parent's; siblings get copies.
+            // Re-assign KV sequences, identically in every ear: dead parents
+            // release theirs, the first child inherits its parent's, siblings
+            // get copies.
             var childCount = [Int](repeating: 0, count: live.count)
             for c in next { childCount[c.parent] += 1 }
             for (i, h) in live.enumerated() where childCount[i] == 0 && h.sequence != 0 {
-                llama_memory_seq_rm(memory, h.sequence, -1, -1)
+                for ear in ears { llama_memory_seq_rm(ear.memory, h.sequence, -1, -1) }
                 freeSequences.append(h.sequence)
             }
             var inherited = [Bool](repeating: false, count: live.count)
             var children: [Hypothesis] = []
             for c in next {
                 let parent = live[c.parent]
-                var sequence: Int32
+                let sequence: Int32
                 if parent.sequence != 0, !inherited[c.parent] {
                     inherited[c.parent] = true
                     sequence = parent.sequence
                 } else {
                     guard let fresh = freeSequences.popLast() else { continue }
                     sequence = fresh
-                    llama_memory_seq_cp(memory, parent.sequence, sequence, -1, -1)
+                    for ear in ears { llama_memory_seq_cp(ear.memory, parent.sequence, sequence, -1, -1) }
                 }
                 children.append(Hypothesis(
-                    tokens: parent.tokens + [c.option.token],
-                    position: c.option.end,
-                    logp: c.score,
-                    chars: parent.chars + c.option.chars,
-                    sequence: sequence,
-                    row: Int32(children.count)
+                    tokens: parent.tokens + [c.option.token], position: c.option.end, logp: c.score,
+                    slips: parent.slips + c.option.slips, sequence: sequence, row: Int32(children.count)
                 ))
             }
-            // A sequence whose inheritor was skipped above must not leak: any
-            // parent sequence not inherited and not 0 is released.
-            for (i, h) in live.enumerated() where childCount[i] > 0 && !inherited[i] && h.sequence != 0 {
-                llama_memory_seq_rm(memory, h.sequence, -1, -1)
-                freeSequences.append(h.sequence)
-            }
-
-            batch.n_tokens = Int32(children.count)
-            let position = llama_pos(promptTokens.count + step)
-            for (i, child) in children.enumerated() {
-                batch.token[i] = child.tokens.last!
-                batch.pos[i] = position
-                batch.n_seq_id[i] = 1
-                batch.seq_id[i]![0] = child.sequence
-                batch.logits[i] = 1
-            }
-            if isCancelled() { return nil }
+            if isCancelled() { release(); return nil }
+            let batch = children.map { ($0.tokens.last!, $0.sequence) }
             let decodeStarted = DispatchTime.now().uptimeNanoseconds
-            let status = llama_decode(ctx, batch)
-            // Logits are read on the CPU right after; wait for them here so the
-            // timing attributes GPU time to decoding.
-            llama_synchronize(ctx)
-            decodeNanos += DispatchTime.now().uptimeNanoseconds - decodeStarted
-            guard status == 0 else {
-                for s in 1..<maxSequences { llama_memory_seq_rm(memory, s, -1, -1) }
-                return nil
+            var tingOK = true
+            var zhiOK = true
+            // The two ears are independent contexts: decode them side by side.
+            DispatchQueue.concurrentPerform(iterations: 2) { i in
+                if i == 0, let ting { tingOK = ting.step(batch, position: llama_pos(tingTokens.count + step)) }
+                if i == 1, let zhi { zhiOK = zhi.step(batch, position: llama_pos(zhiTokens.count + step)) }
             }
+            decodeNanos += DispatchTime.now().uptimeNanoseconds - decodeStarted
+            guard tingOK, zhiOK else { release(); return nil }
             steps += 1
             live = children
         }
 
-        for s in 1..<maxSequences { llama_memory_seq_rm(memory, s, -1, -1) }
+        release()
         let results = finished.values.sorted { $0.logp > $1.logp }.prefix(config.results)
         var seenLeads = Set<String>()
         let rankedLeads = leads.sorted { $0.logp > $1.logp }.filter { seenLeads.insert($0.text + "\u{1}\($0.end)").inserted }
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1e6
         return Answer(
-            context: context,
-            keys: keys,
-            results: Array(results),
-            leads: Array(rankedLeads.prefix(40)),
-            milliseconds: elapsed,
-            steps: steps,
-            promptTokens: promptTokens.count,
-            decodedPromptTokens: decodedPrompt,
-            decodeMilliseconds: Double(decodeNanos) / 1e6
+            context: context, keys: keys, results: Array(results), leads: Array(rankedLeads.prefix(40)),
+            milliseconds: elapsed, steps: steps, promptTokens: tingTokens.count,
+            decodedPromptTokens: decodedPrompt, decodeMilliseconds: Double(decodeNanos) / 1e6
         )
     }
 
-    /// Forget the cached prompt (e.g. after the context changed wholesale).
+    /// Forget the cached prompts (e.g. after the context changed wholesale).
     public func reset() {
-        cachedPrompt = []
-        cachedLogits = []
-        llama_memory_clear(llama_get_memory(ctx), true)
+        ting?.reset()
+        zhi?.reset()
     }
 }

@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pinyin import char_readings, match_char
+from pinyin import char_readings, match_char, spellings
 
 HAN = re.compile(r"^[㐀-䶿一-鿿]+$")
 LATIN = re.compile(r"^ ?[A-Za-z]+$")
@@ -41,31 +41,36 @@ class TokenTrie:
                     node = node.setdefault(c, {})
                 node.setdefault(None, []).append(tid)
                 self.text[tid] = s
-            elif LATIN.match(s) and len(s.strip()) >= 2:
+            elif LATIN.match(s) and (len(s.strip()) >= 2 or s.strip().isupper()):
                 letters = s.strip().lower()
                 self.latin.setdefault(letters, []).append(tid)
                 self.text[tid] = s
         self.max_latin = max(len(k) for k in self.latin)
 
-    def allowed(self, keys: str, pos: int) -> list[tuple[int, int]]:
-        """(token id, end position) pairs readable at keys[pos:]."""
-        out: list[tuple[int, int]] = []
+    def allowed(self, keys: str, pos: int, with_abbr: bool = False):
+        """(token id, end position[, abbreviated chars]) readable at keys[pos:]."""
+        out = []
 
-        def walk(node: dict, p: int):
+        def walk(node: dict, p: int, abbr: int):
             for ch, child in node.items():
                 if ch is None:
                     continue
-                for end in match_char(keys, p, char_readings(ch)):
+                readings = char_readings(ch)
+                for end in match_char(keys, p, readings):
+                    q = p + 1 if p < len(keys) and keys[p] == "'" else p
+                    full = any(keys.startswith(sp, q) and q + len(sp) == end
+                               for r in readings for sp in spellings(r))
+                    a = abbr + (0 if full else 1)
                     for tid in child.get(None, ()):
-                        out.append((tid, end))
+                        out.append((tid, end, a) if with_abbr else (tid, end))
                     if end < len(keys):
-                        walk(child, end)
+                        walk(child, end, a)
 
-        walk(self.root, pos)
+        walk(self.root, pos, 0)
         start = pos + 1 if pos < len(keys) and keys[pos] == "'" else pos
-        for length in range(2, min(self.max_latin, len(keys) - start) + 1):
+        for length in range(1, min(self.max_latin, len(keys) - start) + 1):
             for tid in self.latin.get(keys[start:start + length], ()):
-                out.append((tid, start + length))
+                out.append((tid, start + length, 0) if with_abbr else (tid, start + length))
         return out
 
 
@@ -180,6 +185,143 @@ class Listener:
             live = nxt
         results = sorted(finished.values(), key=lambda r: r.logp, reverse=True)
         return results[:top]
+
+
+    def search_lm(self, context: str, keys: str, beam: int = 12, per_key: float = 1.2,
+                  abbr_cost: float = 2.5, latin_cost: float = 4.0, top: int = 8):
+        """Base LM + typing channel: the model never sees the keys.
+
+        score = log P_LM(text | context) - abbr_cost * (chars read by initial
+        or prefix) - latin_cost * (Latin tokens). Partial hypotheses are
+        ranked by score + per_key * (keys consumed), so hypotheses that have
+        read more of the keys are comparable to those that have read less.
+        """
+        from mlx_lm.models.cache import make_prompt_cache
+
+        from fmt import EOS
+
+        mx = self.mx
+        prompt = [EOS] + self.fmt.encode(context[-48:])
+        cache = make_prompt_cache(self.model)
+        lp = self._logprobs(self.model(mx.array([prompt]), cache=cache)[:, -1, :])
+        mx.eval(lp)
+        n = len(keys)
+        live = [Hyp([], 0, 0.0, 0, 0)]
+        finished: dict[str, Result] = {}
+        options: dict[int, list] = {}
+        for _ in range(n + 2):
+            exp = []
+            for h in live:
+                opts = options.get(h.pos)
+                if opts is None:
+                    opts = options[h.pos] = self.trie.allowed(keys, h.pos, with_abbr=True)
+                if not opts:
+                    continue
+                ids = mx.array([t for t, _, _ in opts])
+                vals = lp[h.row][ids].tolist()
+                for (tid, end, abbr), v in zip(opts, vals):
+                    text = self.trie.text[tid]
+                    cost = abbr_cost * abbr + (latin_cost if not HAN.match(text) else 0.0)
+                    score = h.logp + v - cost
+                    exp.append((score + per_key * end, score, end, tid, h))
+            if not exp:
+                break
+            exp.sort(key=lambda e: e[0], reverse=True)
+            nxt = []
+            for rank, score, end, tid, parent in exp:
+                if end == n:
+                    toks = parent.tokens + [tid]
+                    text = "".join(self.trie.text[t] for t in toks)
+                    if text not in finished or finished[text].logp < score:
+                        finished[text] = Result(text, score, toks)
+                    continue
+                if len(nxt) < beam:
+                    nxt.append(Hyp(parent.tokens + [tid], end, score, 0, parent.row))
+            if not nxt:
+                break
+            best = max((r.logp for r in finished.values()), default=-math.inf)
+            if finished and all(h.logp < best - 8 for h in nxt):
+                break
+            rows = mx.array([h.row for h in nxt])
+            for c in cache:
+                c.keys = c.keys[rows]
+                c.values = c.values[rows]
+            for i, h in enumerate(nxt):
+                h.row = i
+            lp = self._logprobs(self.model(mx.array([[h.tokens[-1]] for h in nxt]), cache=cache)[:, -1, :])
+            mx.eval(lp)
+            live = nxt
+        return sorted(finished.values(), key=lambda r: r.logp, reverse=True)[:top]
+
+    def search_poe(self, base, context: str, keys: str, beam: int = 12, w_ft: float = 1.0,
+                   w_base: float = 0.6, per_key: float = 1.0, abbr_cost: float = 1.0,
+                   latin_cost: float = 3.0, top: int = 8):
+        """Product of experts: this model (sees the keys) × `base` (does not).
+
+        score = w_ft log P_ft(t | ctx, keys, prefix) + w_base log P_base(t | ctx, prefix)
+                - channel costs. Both caches are re-indexed together.
+        """
+        from mlx_lm.models.cache import make_prompt_cache
+
+        from fmt import EOS
+
+        mx = self.mx
+        p_ft = self.fmt.prompt(context, keys)
+        p_lm = [EOS] + self.fmt.encode(context[-48:])
+        c_ft = make_prompt_cache(self.model)
+        c_lm = make_prompt_cache(base)
+        lf = self._logprobs(self.model(mx.array([p_ft]), cache=c_ft)[:, -1, :])
+        lb = self._logprobs(base(mx.array([p_lm]), cache=c_lm)[:, -1, :])
+        lp = w_ft * lf + w_base * lb
+        mx.eval(lp)
+        n = len(keys)
+        live = [Hyp([], 0, 0.0, 0, 0)]
+        finished: dict[str, Result] = {}
+        options: dict[int, list] = {}
+        for _ in range(n + 2):
+            exp = []
+            for h in live:
+                opts = options.get(h.pos)
+                if opts is None:
+                    opts = options[h.pos] = self.trie.allowed(keys, h.pos, with_abbr=True)
+                if not opts:
+                    continue
+                vals = lp[h.row][mx.array([t for t, _, _ in opts])].tolist()
+                for (tid, end, abbr), v in zip(opts, vals):
+                    text = self.trie.text[tid]
+                    score = h.logp + v - abbr_cost * abbr - (latin_cost if not HAN.match(text) else 0.0)
+                    exp.append((score + per_key * end, score, end, tid, h))
+            if not exp:
+                break
+            exp.sort(key=lambda e: e[0], reverse=True)
+            nxt = []
+            for rank, score, end, tid, parent in exp:
+                if end == n:
+                    toks = parent.tokens + [tid]
+                    text = "".join(self.trie.text[t] for t in toks)
+                    if text not in finished or finished[text].logp < score:
+                        finished[text] = Result(text, score, toks)
+                    continue
+                if len(nxt) < beam:
+                    nxt.append(Hyp(parent.tokens + [tid], end, score, 0, parent.row))
+            if not nxt:
+                break
+            best = max((r.logp for r in finished.values()), default=-math.inf)
+            if finished and all(h.logp < best - 8 for h in nxt):
+                break
+            rows = mx.array([h.row for h in nxt])
+            for c in list(c_ft) + list(c_lm):
+                c.keys = c.keys[rows]
+                c.values = c.values[rows]
+            for i, h in enumerate(nxt):
+                h.row = i
+            step = mx.array([[h.tokens[-1]] for h in nxt])
+            lf = self._logprobs(self.model(step, cache=c_ft)[:, -1, :])
+            lb = self._logprobs(base(step, cache=c_lm)[:, -1, :])
+            lp = w_ft * lf + w_base * lb
+            mx.eval(lp)
+            live = nxt
+        return sorted(finished.values(), key=lambda r: r.logp, reverse=True)[:top]
 
 
 if __name__ == "__main__":

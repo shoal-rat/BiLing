@@ -32,7 +32,14 @@ let bundledData = here.deletingLastPathComponent().appendingPathComponent("Resou
 let dataDirectory = option("--data") ?? environment["ZHIYIN_DATA"]
     ?? (FileManager.default.fileExists(atPath: bundledData) ? bundledData : "Resources/Data")
 let modelPath = option("--model") ?? environment["ZHIYIN_MODEL"]
-    ?? "\(dataDirectory)/../Models/ziqi.gguf"
+    ?? "\(dataDirectory)/../Models/ziqi-base.gguf"
+let adapterPath = option("--adapter") ?? environment["ZHIYIN_ADAPTER"]
+    ?? "\(dataDirectory)/../Models/ziqi-tingyin.gguf"
+let zhiWeight = option("--zhi").flatMap(Float.init)
+let tingWeight = option("--ting").flatMap(Float.init)
+let perKey = option("--per-key").flatMap(Float.init)
+let abbrCost = option("--abbr-cost").flatMap(Float.init)
+let slipCost = option("--slip-cost").flatMap(Float.init)
 let vocabPath = option("--vocab") ?? "\(dataDirectory)/ziqi-vocab.trie"
 let qinpuPath = option("--qinpu") ?? "\(dataDirectory)/qinpu.trie"
 let beam = option("--beam").flatMap(Int.init)
@@ -45,13 +52,19 @@ func fail(_ message: String) -> Never {
 }
 
 func loadZiqi() -> Ziqi {
-    var config = Ziqi.Config()
+    let hasAdapter = FileManager.default.fileExists(atPath: adapterPath) && adapterPath != "none"
+    var config = hasAdapter ? Ziqi.Config() : Ziqi.Config.zhiOnly
     if let beam { config.beam = beam }
-    if let reward { config.charReward = reward }
-    if let latinPenalty { config.latinPenalty = latinPenalty }
+    if let perKey { config.perKey = perKey }
+    if let latinPenalty { config.latinCost = latinPenalty }
+    if let zhiWeight { config.zhiWeight = zhiWeight }
+    if let tingWeight { config.tingWeight = tingWeight }
+    if let abbrCost { config.abbreviationCost = abbrCost }
+    if let slipCost { config.slipCost = slipCost }
+    _ = reward
     do {
         let started = Date()
-        let z = try Ziqi(modelPath: modelPath, vocabularyPath: vocabPath, config: config)
+        let z = try Ziqi(modelPath: modelPath, adapterPath: hasAdapter ? adapterPath : nil, vocabularyPath: vocabPath, config: config)
         FileHandle.standardError.write(Data("子期: \(z.description), loaded in \(Int(Date().timeIntervalSince(started) * 1000)) ms\n".utf8))
         return z
     } catch {

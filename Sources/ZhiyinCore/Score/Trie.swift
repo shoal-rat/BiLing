@@ -134,6 +134,8 @@ public final class CharTrie: @unchecked Sendable {
         public let chars: Int8
         /// Characters read by initial or prefix rather than spelled in full.
         public let abbreviated: Int8
+        /// Characters read through a slip of the finger (走音).
+        public let slips: Int8
     }
 
     /// Everything readable from key position p, at most `maxChars` characters.
@@ -148,7 +150,7 @@ public final class CharTrie: @unchecked Sendable {
             for k in lo..<hi {
                 let node = rootNodes[k]
                 guard seen.insert(node).inserted else { continue }
-                visit(Int(node), reader, from: p, depth: 1, abbreviated: 0, maxChars: maxChars, into: &out)
+                visit(Int(node), reader, from: p, depth: 1, abbreviated: 0, slips: 0, maxChars: maxChars, into: &out)
             }
         }
         return out
@@ -160,16 +162,20 @@ public final class CharTrie: @unchecked Sendable {
         from p: Int,
         depth: Int,
         abbreviated: Int,
+        slips: Int,
         maxChars: Int,
         into out: inout [Match]
     ) {
         let n = reader.count
-        reader.forEachEnd(from: p, readings: readings(node)) { end, full in
-            let abbr = abbreviated + (full ? 0 : 1)
+        reader.forEachEnd(from: p, readings: readings(node)) { end, how in
+            let abbr = abbreviated + (how == .abbreviated ? 1 : 0)
+            let slip = slips + (how == .slip ? 1 : 0)
+            guard slip <= KeyReader.maxSlips else { return }
             let first = field(node, 3)
             let count = field(node, 4)
             for e in first..<(first + count) {
-                out.append(Match(entry: Int32(e), end: Int16(end), chars: Int8(depth), abbreviated: Int8(abbr)))
+                out.append(Match(entry: Int32(e), end: Int16(end), chars: Int8(depth),
+                                 abbreviated: Int8(abbr), slips: Int8(slip)))
             }
             guard end < n, depth < maxChars else { return }
             let child = field(node, 1)
@@ -178,7 +184,7 @@ public final class CharTrie: @unchecked Sendable {
             // follows): no child can be read, skip the whole subtree.
             guard children > 0, !reader.startable[reader.skipSeparator(end)].isEmpty else { return }
             for c in child..<(child + children) {
-                visit(c, reader, from: end, depth: depth + 1, abbreviated: abbr, maxChars: maxChars, into: &out)
+                visit(c, reader, from: end, depth: depth + 1, abbreviated: abbr, slips: slip, maxChars: maxChars, into: &out)
             }
         }
     }
@@ -190,10 +196,10 @@ public final class CharTrie: @unchecked Sendable {
         var out: [(UInt32, Int)] = []
         guard q < reader.count else { return out }
         let available = reader.count - q
-        guard available >= 2 else { return out }
+        guard available >= 1 else { return out }
         // Every Latin entry that is a prefix of keys[q...]: binary search the
         // sorted table for each candidate length.
-        for length in 2...min(maxLetters, available) {
+        for length in 1...min(maxLetters, available) {
             let key = Array(reader.keys[q..<(q + length)])
             guard !key.contains(KeyReader.apostrophe) else { break }
             var lo = 0

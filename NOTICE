@@ -1,0 +1,13 @@
+知音 Zhiyin
+Copyright 2026 the Zhiyin / BiLing contributors. Licensed under Apache-2.0.
+
+子期 (Models/ziqi.gguf) is a fine-tune of Qwen3-0.6B-Base by the Qwen team,
+Apache-2.0 (Resources/Licenses/LICENSE-QWEN-APACHE-2.0.txt).
+
+琴谱 (Resources/Data/qinpu.trie) is compiled from:
+  - 万象拼音 rime_wanxiang, CC BY 4.0 (Resources/Licenses/CC-BY-4.0-rime-wanxiang.txt)
+  - Rime pinyin-simp, Apache-2.0 (Resources/Licenses/APACHE-2.0-rime-pinyin-simp.txt)
+Word frequencies and training examples are derived from the Leipzig Corpora
+Collection (zho_news_2007-2009, zho_wikipedia_2018, zho-cn_web_2015; D. Goldhahn,
+T. Eckart, U. Quasthoff, LREC 2012) and LCCC (MIT). Evaluation uses
+zho_news_2020, which never enters training.

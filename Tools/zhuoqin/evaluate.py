@@ -31,6 +31,11 @@ def main() -> None:
     p.add_argument("--beam", type=int, default=6)
     p.add_argument("--reward", type=float, default=1.0)
     p.add_argument("--hide-keys", action="store_true", help="base LM mode: keys only constrain")
+    p.add_argument("--lm", action="store_true", help="base LM + typing channel search (search_lm)")
+    p.add_argument("--per-key", type=float, default=1.2)
+    p.add_argument("--abbr-cost", type=float, default=2.5)
+    p.add_argument("--poe", action="store_true", help="fine-tuned × base product of experts")
+    p.add_argument("--w-base", type=float, default=0.6)
     a = p.parse_args()
 
     adapter = None if str(a.run) == "none" else a.run
@@ -41,6 +46,10 @@ def main() -> None:
         adapter = tmp
     root = Path(__file__).resolve().parents[3]
     L = Listener(root / "work/models/Qwen3-0.6B-Base", adapter)
+    base = None
+    if a.poe:
+        from mlx_lm import load as _load
+        base, _ = _load(str(root / "work/models/Qwen3-0.6B-Base"))
 
     items = []
     taken: dict[str, int] = defaultdict(int)
@@ -57,7 +66,13 @@ def main() -> None:
     t0 = time.time()
     misses = []
     for cat, ctx, keys, expected in items:
-        res = L.search("" if a.no_context else ctx, keys, beam=a.beam, reward=a.reward, show_keys=not a.hide_keys)
+        if a.poe:
+            res = L.search_poe(base, "" if a.no_context else ctx, keys, beam=a.beam, w_base=a.w_base,
+                               per_key=a.per_key, abbr_cost=a.abbr_cost)
+        elif a.lm:
+            res = L.search_lm("" if a.no_context else ctx, keys, beam=a.beam, per_key=a.per_key, abbr_cost=a.abbr_cost)
+        else:
+            res = L.search("" if a.no_context else ctx, keys, beam=a.beam, reward=a.reward, show_keys=not a.hide_keys)
         texts = [r.text for r in res]
         ok = int(bool(texts) and texts[0] == expected)
         hits[cat].append(ok)

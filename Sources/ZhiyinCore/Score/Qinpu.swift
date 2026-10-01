@@ -13,6 +13,8 @@ public final class Qinpu: @unchecked Sendable {
     /// Price of reading one character by initial or prefix instead of in
     /// full (nats). Spelled-out readings win whenever both exist.
     public var abbreviationCost: Float = 1.6
+    /// Price of a character read through a slip of the finger (走音).
+    public var slipCost: Float = 6.0
     /// Cap on dictionary edges kept per (start, end) span.
     public var edgesPerSpan = 10
 
@@ -38,7 +40,7 @@ public final class Qinpu: @unchecked Sendable {
         // Rank by score per end first; only the survivors become strings.
         var bySpan: [Int: [(Float, CharTrie.Match)]] = [:]
         for m in matches {
-            let score = trie.logp(Int(m.entry)) - abbreviationCost * Float(m.abbreviated)
+            let score = trie.logp(Int(m.entry)) - abbreviationCost * Float(m.abbreviated) - slipCost * Float(m.slips)
             bySpan[Int(m.end), default: []].append((score, m))
         }
         var out: [Phrase] = []
