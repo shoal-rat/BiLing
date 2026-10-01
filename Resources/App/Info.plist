@@ -13,7 +13,7 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.zhiyin.inputmethod</string>
+	<string>com.zhiyin.inputmethod.Zhiyin</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundlePackageType</key>
@@ -33,13 +33,13 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>知音 · 高山流水，觅得知音。Apache-2.0. Model derived from Qwen3-0.6B-Base (Apache-2.0).</string>
 	<key>InputMethodConnectionName</key>
-	<string>com.zhiyin.inputmethod_Connection</string>
+	<string>com.zhiyin.inputmethod.Zhiyin_Connection</string>
 	<key>InputMethodServerControllerClass</key>
 	<string>ZhiyinInputController</string>
 	<key>InputMethodServerDelegateClass</key>
 	<string>ZhiyinInputController</string>
 	<key>TISInputSourceID</key>
-	<string>com.zhiyin.inputmethod</string>
+	<string>com.zhiyin.inputmethod.Zhiyin</string>
 	<key>TISIntendedLanguage</key>
 	<string>zh-Hans</string>
 	<key>tsInputMethodIconFileKey</key>
@@ -52,10 +52,10 @@
 	<dict>
 		<key>tsInputModeListKey</key>
 		<dict>
-			<key>com.zhiyin.inputmethod.Hans</key>
+			<key>com.zhiyin.inputmethod.Zhiyin.Hans</key>
 			<dict>
 				<key>TISInputSourceID</key>
-				<string>com.zhiyin.inputmethod.Hans</string>
+				<string>com.zhiyin.inputmethod.Zhiyin.Hans</string>
 				<key>TISIntendedLanguage</key>
 				<string>zh-Hans</string>
 				<key>TISIconIsTemplate</key>
@@ -82,7 +82,7 @@
 		</dict>
 		<key>tsVisibleInputModeOrderedArrayKey</key>
 		<array>
-			<string>com.zhiyin.inputmethod.Hans</string>
+			<string>com.zhiyin.inputmethod.Zhiyin.Hans</string>
 		</array>
 	</dict>
 </dict>

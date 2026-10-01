@@ -5,7 +5,10 @@ import Foundation
 /// 琴台 applies to the next key, not the next launch.
 final class Preferences: ObservableObject, @unchecked Sendable {
     static let shared = Preferences()
-    private let defaults = UserDefaults(suiteName: "com.zhiyin.inputmethod") ?? .standard
+    // Inside 知音.app the standard domain is com.zhiyin.inputmethod.Zhiyin already.
+    private let defaults = Bundle.main.bundleIdentifier == "com.zhiyin.inputmethod.Zhiyin"
+        ? UserDefaults.standard
+        : (UserDefaults(suiteName: "com.zhiyin.inputmethod.Zhiyin") ?? .standard)
 
     // 指法 · touch
     @Published var shiftToggles: Bool { didSet { defaults.set(shiftToggles, forKey: "shiftToggles") } }

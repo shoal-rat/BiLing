@@ -106,6 +106,117 @@ def initials(syllable: str) -> tuple[str, ...]:
     return (syllable[0],)
 
 
+# ---------------------------------------------------------------------------
+# 走音 · slips of the finger. Mirrors KeyReader.slips / cleanlyReadable.
+
+MAX_SLIPS = 2
+_ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
+_NEAR: set[tuple[str, str]] = set()
+for _r, _row in enumerate(_ROWS):
+    for _i, _ch in enumerate(_row):
+        if _i + 1 < len(_row):
+            _NEAR |= {(_ch, _row[_i + 1]), (_row[_i + 1], _ch)}
+        if _r + 1 < len(_ROWS):
+            _below = _ROWS[_r + 1]
+            for _j in (_i, _i - 1):
+                if 0 <= _j < len(_below):
+                    _NEAR |= {(_ch, _below[_j]), (_below[_j], _ch)}
+
+
+def near(a: str, b: str) -> bool:
+    return (a, b) in _NEAR
+
+
+def slip_ends(keys: str, q: int, limit: int, sp: str) -> list[int]:
+    """Ends of one-slip spellings of `sp` at q (never across `limit`)."""
+    L = len(sp)
+    out: list[int] = []
+    if L < 2:
+        return out
+    if q + L <= limit:
+        diffs = [i for i in range(L) if keys[q + i] != sp[i]]
+        if len(diffs) == 1 and near(keys[q + diffs[0]], sp[diffs[0]]):
+            out.append(q + L)
+        elif (len(diffs) == 2 and diffs[1] == diffs[0] + 1
+              and keys[q + diffs[0]] == sp[diffs[1]] and keys[q + diffs[1]] == sp[diffs[0]]):
+            out.append(q + L)
+    if L >= 3 and q + L - 1 <= limit:
+        for skip in range(1, L):
+            if keys[q:q + L - 1] == sp[:skip] + sp[skip + 1:]:
+                out.append(q + L - 1)
+                break
+    if q + L + 1 <= limit:
+        for extra in range(1, L + 1):
+            if keys[q:q + extra] == sp[:extra] and keys[q + extra + 1:q + L + 1] == sp[extra:]:
+                x = keys[q + extra]
+                before = sp[extra - 1]
+                after = sp[extra] if extra < L else ""
+                if x in (before, after) or near(x, before) or (after and near(x, after)):
+                    out.append(q + L + 1)
+                    break
+    return out
+
+
+def cleanly_readable(keys: str) -> bool:
+    """Do the keys read as complete full syllables end to end?"""
+    n = len(keys)
+    reach = [False] * (n + 1)
+    reach[0] = True
+    for q in range(n):
+        if not reach[q]:
+            continue
+        if keys[q] == "'":
+            reach[q + 1] = True
+            continue
+        for s in SYLLABLES:
+            for sp in spellings(s):
+                if keys.startswith(sp, q):
+                    reach[q + len(sp)] = True
+    return reach[n]
+
+
+def match_char_kinds(keys: str, pos: int, readings: tuple[str, ...], slips: bool) -> list[tuple[int, int]]:
+    """(end, kind) for one character: kind 0 full, 1 initial/prefix, 2 slip.
+
+    The same rules as match_char, plus 走音 when `slips` is on.
+    """
+    n = len(keys)
+    if pos < n and keys[pos] == "'":
+        pos += 1
+    if pos >= n:
+        return []
+    best: dict[int, int] = {}
+
+    def add(end: int, kind: int) -> None:
+        if end <= n and (end not in best or kind < best[end]):
+            best[end] = kind
+
+    spelled = False
+    for syllable in readings:
+        for sp in spellings(syllable):
+            if keys.startswith(sp, pos):
+                add(pos + len(sp), 0)
+                spelled = True
+    if not spelled:
+        for syllable in readings:
+            for initial in initials(syllable):
+                if keys.startswith(initial, pos):
+                    add(pos + len(initial), 1)
+    rest = keys[pos:]
+    if "'" not in rest:
+        for syllable in readings:
+            for sp in spellings(syllable):
+                if len(rest) < len(sp) and sp.startswith(rest):
+                    add(n, 1)
+    if slips:
+        limit = keys.find("'", pos)
+        limit = n if limit < 0 else limit
+        for syllable in readings:
+            for end in slip_ends(keys, pos, limit, syllable):
+                add(end, 2)
+    return sorted(best.items())
+
+
 def match_char(keys: str, pos: int, readings: tuple[str, ...]) -> list[int]:
     """End positions after reading one character (any of its readings).
 
@@ -234,20 +345,69 @@ def simulate_keys(
     return keys
 
 
+def simulate_with_slips(rng: random.Random, words, *, p_slip: float = 0.07, **kwargs) -> str | None:
+    """simulate_keys, then sometimes a slip or two the decoder can still read."""
+    keys = simulate_keys(rng, words, **kwargs)
+    if keys is None or rng.random() >= p_slip:
+        return keys
+    for _ in range(4):
+        slipped = inject_slip(rng, keys)
+        if rng.random() < 0.2:
+            slipped = inject_slip(rng, slipped)
+        if slipped != keys and readable(slipped, words):
+            return slipped
+    return keys
+
+
 def readable(keys: str, words: list[tuple[str, list[str]]]) -> bool:
-    """Can the matcher read `keys` as exactly `words`, end to end?"""
-    frontier = {0}
+    """Can the matcher read `keys` as exactly `words`, end to end?
+
+    With slips allowed exactly when the decoder allows them (keys that are
+    not a clean run of complete syllables), at most MAX_SLIPS of them.
+    """
+    slips = not cleanly_readable(keys)
+    frontier = {(0, 0)}  # (position, slips used)
     for text, syllables in words:
-        nxt: set[int] = set()
-        for p in frontier:
+        nxt: set[tuple[int, int]] = set()
+        for p, used in frontier:
             if syllables:
-                nxt.update(match_text(keys, p, text))
+                states = {(p, used)}
+                for ch in text:
+                    step: set[tuple[int, int]] = set()
+                    for q, u in states:
+                        for end, kind in match_char_kinds(keys, q, char_readings(ch), slips):
+                            uu = u + (kind == 2)
+                            if uu <= MAX_SLIPS:
+                                step.add((end, uu))
+                    states = set(sorted(step)[:32])
+                    if not states:
+                        break
+                nxt |= states
             else:
-                nxt.update(match_latin(keys, p, text))
+                nxt |= {(e, used) for e in match_latin(keys, p, text)}
         if not nxt:
             return False
         frontier = nxt
-    return len(keys) in frontier
+    return any(p == len(keys) for p, _ in frontier)
+
+
+def inject_slip(rng: random.Random, keys: str) -> str:
+    """One slip of the finger somewhere in `keys` (never the first key)."""
+    letters = [i for i, c in enumerate(keys) if c.isalpha()]
+    if len(letters) < 3:
+        return keys
+    i = rng.choice(letters[1:])
+    c = keys[i]
+    roll = rng.random()
+    if roll < 0.5:
+        options = [b for (a, b) in _NEAR if a == c]
+        return keys[:i] + rng.choice(options) + keys[i + 1:] if options else keys
+    if roll < 0.7 and i + 1 < len(keys) and keys[i + 1].isalpha() and keys[i + 1] != c:
+        return keys[:i] + keys[i + 1] + c + keys[i + 2:]
+    if roll < 0.85:
+        return keys[:i] + keys[i + 1:]
+    extra = rng.choice([c] + [b for (a, b) in _NEAR if a == c])
+    return keys[:i + 1] + extra + keys[i + 1:]
 
 
 if __name__ == "__main__":
@@ -257,6 +417,11 @@ if __name__ == "__main__":
     print(match_text("jiaoshi", 0, "教室"), match_text("dan", 0, "大安"), match_text("dg", 0, "大哥"))
     print(match_text("jldx", 0, "吉林大学"), match_text("jilindaxu", 0, "吉林大学"))
     print(match_latin("yongvscode", 4, "VS Code"))
+    for k in ("niihao", "nihoa", "zhogguo", "nihap", "nihai"):
+        print(k, cleanly_readable(k), readable(k, [("你好", ["ni", "hao"])]), readable(k, [("中国", ["zhong", "guo"])]))
+
     w = [("吉林", ["ji", "lin"]), ("大学", ["da", "xue"]), ("没有", ["mei", "you"]), ("空调", ["kong", "tiao"])]
     for _ in range(5):
         print(simulate_keys(rng, w, heavy=0.6, truncate_last=True))
+    for _ in range(6):
+        print("slip:", simulate_with_slips(rng, w, p_slip=1.0))

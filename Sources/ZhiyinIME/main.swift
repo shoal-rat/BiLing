@@ -57,10 +57,11 @@ if arguments.contains("--smoke-test") {
         print("知音 smoke test passed.")
         return true
     }
+    MainActor.assumeIsolated { Runtime.shared.listener?.releaseNow() }
     exit(ok ? 0 : 70)
 }
 
-let connection = Bundle.main.infoDictionary?["InputMethodConnectionName"] as? String ?? "com.zhiyin.inputmethod_Connection"
+let connection = Bundle.main.infoDictionary?["InputMethodConnectionName"] as? String ?? "com.zhiyin.inputmethod.Zhiyin_Connection"
 if arguments.contains("--qintai") {
     app.setActivationPolicy(.accessory)
     MainActor.assumeIsolated { QintaiWindow.shared.show() }

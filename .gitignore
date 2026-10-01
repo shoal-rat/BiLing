@@ -11,3 +11,4 @@ Resources/Brand/AppIcon.iconset/
 Tests/Corpus/derived-*.tsv
 # Results of evaluation runs (per-item outputs)
 Docs/results/*.per-item.tsv
+Models/*.gguf

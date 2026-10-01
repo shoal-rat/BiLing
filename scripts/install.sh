@@ -7,18 +7,20 @@
 #
 #   scripts/install.sh            build, stage, test, install, register
 #   ZHIYIN_SKIP_BUILD=1 …         reuse the existing release build
-#   ZHIYIN_MODEL=path.gguf …      install a different listener model
+#   ZHIYIN_BASE=path.gguf …       a different base model (知意)
+#   ZHIYIN_ADAPTER=path.gguf …    a different 听音 adapter
 set -euo pipefail
 
 root=${0:A:h:h}
-bundle_name="Zhiyin.app"
+bundle_name="知音.app"
 dest_dir="$HOME/Library/Input Methods"
 dest="$dest_dir/$bundle_name"
 backup="$dest.previous"
-model="${ZHIYIN_MODEL:-$root/Models/ziqi.gguf}"
+base_model="${ZHIYIN_BASE:-$root/Models/ziqi-base.gguf}"
+adapter="${ZHIYIN_ADAPTER:-$root/Models/ziqi-tingyin.gguf}"
 data="$root/Resources/Data"
 
-for f in "$model" "$data/qinpu.trie" "$data/ziqi-vocab.trie" "$data/char_readings.json"; do
+for f in "$base_model" "$adapter" "$data/qinpu.trie" "$data/ziqi-vocab.trie" "$data/char_readings.json"; do
   [[ -f "$f" ]] || { print -u2 "missing: $f"; exit 78; }
 done
 for lib in /opt/homebrew/opt/llama.cpp/lib/libllama.0.dylib /opt/homebrew/opt/ggml/lib/libggml.0.dylib \
@@ -46,7 +48,8 @@ ditto "$bin/tiaoyin" "$c/MacOS/tiaoyin"
 ditto "$root/Resources/Brand/AppIcon.icns" "$c/Resources/AppIcon.icns"
 ditto "$root/Resources/Brand/MenuIcon.tiff" "$c/Resources/MenuIcon.tiff"
 for f in qinpu.trie ziqi-vocab.trie char_readings.json; do ditto "$data/$f" "$c/Resources/Data/$f"; done
-ditto "$model" "$c/Resources/Models/ziqi.gguf"
+ditto "$base_model" "$c/Resources/Models/ziqi-base.gguf"
+ditto "$adapter" "$c/Resources/Models/ziqi-tingyin.gguf"
 ditto "$root/LICENSE" "$c/Resources/Licenses/LICENSE-ZHIYIN.txt"
 for f in "$root"/Resources/Licenses/*(N); do ditto "$f" "$c/Resources/Licenses/${f:t}"; done
 
@@ -108,10 +111,14 @@ rollback() {
 }
 trap 'rollback; rm -rf "$stage"' EXIT
 killall Zhiyin 2>/dev/null || true
+# Early builds installed as Zhiyin.app; never leave two copies registered.
+rm -rf "$dest_dir/Zhiyin.app" "$dest_dir/Zhiyin.app.previous"
 rm -rf "$backup"
 [[ -e "$dest" ]] && mv "$dest" "$backup"
 ditto "$app" "$dest"
-"$dest/Contents/MacOS/Zhiyin" --register
+if [[ -z "${ZHIYIN_NO_REGISTER:-}" ]]; then
+  "$dest/Contents/MacOS/Zhiyin" --register
+fi
 installed=1
 rm -rf "$backup"
 print "知音 installed at $dest"

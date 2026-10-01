@@ -47,6 +47,8 @@ LENGTH_WEIGHTS = {
 }
 # Share of spans that run a whole clause (up to MAX_SYLLABLES).
 CLAUSE_SHARE = 0.45
+# Share of examples typed with a slip of the finger (走音), see pinyin.py.
+P_SLIP = 0.07
 
 
 def leipzig_units(path: Path, seed: int = 11):
@@ -131,7 +133,7 @@ def mostly_simplified(text: str) -> bool:
 
 def examples_for(args):
     text, source, seed = args
-    from pinyin import simulate_keys
+    from pinyin import simulate_keys, simulate_with_slips
 
     if not mostly_simplified(text):
         return []
@@ -180,7 +182,7 @@ def examples_for(args):
         # Latin-only spans teach nothing about conversion.
         heavy = rng.choice((0.0, 0.0, 0.0, 0.3, 0.6, 1.0))
         truncate = rng.random() < 0.14
-        keys = simulate_keys(rng, span, heavy=heavy, truncate_last=truncate)
+        keys = simulate_with_slips(rng, span, p_slip=P_SLIP, heavy=heavy, truncate_last=truncate)
         if keys is None:
             keys = simulate_keys(rng, span, heavy=0.0, truncate_last=False)
         if keys is None or len(keys) > 64:
@@ -207,6 +209,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20261001)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--sources", default="", help="comma-separated subset: chat,news,wiki,web")
+    parser.add_argument("--skip", type=int, default=0, help="units to skip per source (scaled by share), for fresh text")
     args = parser.parse_args()
 
     c = args.corpora
@@ -228,9 +231,12 @@ def main() -> None:
     with mp.Pool(args.workers, initializer=_init_worker) as pool:
         for name, units, share in sources:
             limit = int(args.per_source * share)
+            skip = int(args.skip * share)
             seen: set[int] = set()
             jobs = []
-            for text in units:
+            for index, text in enumerate(units):
+                if index < skip:
+                    continue
                 h = hash(text)
                 if h in seen:
                     continue

@@ -125,6 +125,16 @@ public final class ListenerService: @unchecked Sendable {
         queue.asyncAfter(deadline: .now() + idleRelease, execute: work)
     }
 
+    /// Release synchronously (before the process exits: ggml's Metal device
+    /// asserts if a model is still resident when static destructors run).
+    public func releaseNow() {
+        queue.sync {
+            releaseWork?.cancel()
+            ziqi = nil
+            setState(.resting)
+        }
+    }
+
     /// Release now (memory pressure, or the user turned 子期 off).
     public func release() {
         queue.async { [self] in
