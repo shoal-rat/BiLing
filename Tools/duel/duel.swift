@@ -189,15 +189,14 @@ for (index, row) in rows.enumerated() {
     // Long input can convert in several segments: keep committing until the
     // view stops growing, so the comparison sees the whole sentence.
     var attempts = 0
-    while produced.isEmpty || attempts < 3 {
+    repeat {
         let before = produced
         post(spaceKey)
-        spin(0.35)
+        spin(0.3)
         produced = converted()
         attempts += 1
         if produced == before && !produced.isEmpty { break }
-        if attempts >= 6 { break }
-    }
+    } while attempts < 6
     let matched = produced == row.expected
     if matched { correct += 1 }
     print("\(row.category)\t\(row.context)\t\(row.pinyin)\t\(row.expected)\t\(produced)\t\(matched ? 1 : 0)")

@@ -143,3 +143,18 @@ try png(1024, appIcon).write(to: out.appendingPathComponent("AppIcon-1024.png"))
 try png(16, menuGlyph).write(to: out.appendingPathComponent("MenuIcon.png"))
 try png(32, menuGlyph).write(to: out.appendingPathComponent("MenuIcon@2x.png"))
 print("icons written to \(out.path)")
+
+// Menu glyph as a vector PDF template (what the input menu renders best).
+do {
+    var box = CGRect(x: 0, y: 0, width: 16, height: 16)
+    let url = out.appendingPathComponent("MenuIcon.pdf") as CFURL
+    if let pdf = CGContext(url, mediaBox: &box, nil) {
+        pdf.beginPDFPage(nil)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: pdf, flipped: false)
+        menuGlyph(pdf, 16)
+        NSGraphicsContext.restoreGraphicsState()
+        pdf.endPDFPage()
+        pdf.closePDF()
+    }
+}

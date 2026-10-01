@@ -46,7 +46,7 @@ ditto "$root/Resources/App/en.lproj" "$c/Resources/en.lproj"
 ditto "$bin/Zhiyin" "$c/MacOS/Zhiyin"
 ditto "$bin/tiaoyin" "$c/MacOS/tiaoyin"
 ditto "$root/Resources/Brand/AppIcon.icns" "$c/Resources/AppIcon.icns"
-ditto "$root/Resources/Brand/MenuIcon.tiff" "$c/Resources/MenuIcon.tiff"
+ditto "$root/Resources/Brand/MenuIcon.pdf" "$c/Resources/MenuIcon.pdf"
 for f in qinpu.trie ziqi-vocab.trie char_readings.json; do ditto "$data/$f" "$c/Resources/Data/$f"; done
 ditto "$base_model" "$c/Resources/Models/ziqi-base.gguf"
 ditto "$adapter" "$c/Resources/Models/ziqi-tingyin.gguf"

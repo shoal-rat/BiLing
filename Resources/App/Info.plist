@@ -43,7 +43,7 @@
 	<key>TISIntendedLanguage</key>
 	<string>zh-Hans</string>
 	<key>tsInputMethodIconFileKey</key>
-	<string>MenuIcon.tiff</string>
+	<string>MenuIcon.pdf</string>
 	<key>tsInputMethodCharacterRepertoireKey</key>
 	<array>
 		<string>Hans</string>
@@ -61,11 +61,11 @@
 				<key>TISIconIsTemplate</key>
 				<true/>
 				<key>tsInputModeMenuIconFileKey</key>
-				<string>MenuIcon.tiff</string>
+				<string>MenuIcon.pdf</string>
 				<key>tsInputModeAlternateMenuIconFileKey</key>
-				<string>MenuIcon.tiff</string>
+				<string>MenuIcon.pdf</string>
 				<key>tsInputModePaletteIconFileKey</key>
-				<string>MenuIcon.tiff</string>
+				<string>MenuIcon.pdf</string>
 				<key>tsInputModeCharacterRepertoireKey</key>
 				<array>
 					<string>Hans</string>

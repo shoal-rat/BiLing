@@ -126,6 +126,7 @@ case "score":
 case "eval":
     guard let path = arguments.first else { fail("usage: tiaoyin eval corpus.tsv") }
     let noContext = flag("--no-context")
+    let rescueOn = !flag("--no-rescue")
     let engineOnly = flag("--engine-only")
     let perItem = option("--per-item")
     let limit = option("--limit").flatMap(Int.init) ?? Int.max
@@ -140,7 +141,8 @@ case "eval":
         let ctx = noContext ? "" : item.context
         let started = DispatchTime.now()
         var ranked: [String] = []
-        if let z, let answer = z.listen(context: ctx, keys: item.keys) {
+        let rescue = rescueOn ? q.decode(KeyReader(item.keys, syllables: q.syllables), nbest: 3).map(\.text) : []
+        if let z, let answer = z.listen(context: ctx, keys: item.keys, rescue: rescue) {
             ranked = answer.results.map(\.text)
         }
         if ranked.isEmpty {
@@ -176,27 +178,36 @@ case "eval":
     if let perItem { try? rows.joined(separator: "\n").write(toFile: perItem, atomically: true, encoding: .utf8) }
 
 case "bench":
+    // Types each item letter by letter, as a person would, and times every
+    // keystroke: wall time, time inside llama_decode (GPU), decode steps and
+    // prompt tokens actually decoded (the KV cache serves the rest).
     guard let path = arguments.first else { fail("usage: tiaoyin bench corpus.tsv") }
     let limit = option("--limit").flatMap(Int.init) ?? 100
     let z = loadZiqi()
-    var ms: [Double] = []
+    var wall: [Double] = []
+    var gpu: [Double] = []
     var steps = 0
-    var keystrokes = 0
+    var promptDecoded = 0
     for item in readCorpus(path).prefix(limit) {
         var typed = ""
         for ch in item.keys {
             typed.append(ch)
             if let a = z.listen(context: item.context, keys: typed) {
-                ms.append(a.milliseconds)
+                wall.append(a.milliseconds)
+                gpu.append(a.decodeMilliseconds)
                 steps += a.steps
+                promptDecoded += a.decodedPromptTokens
             }
-            keystrokes += 1
         }
     }
-    ms.sort()
-    func q(_ f: Double) -> Double { ms.isEmpty ? 0 : ms[min(ms.count - 1, Int(Double(ms.count) * f))] }
-    print(String(format: "%d keystrokes  p50 %.1f ms  p90 %.1f ms  p99 %.1f ms  mean steps %.1f",
-                 keystrokes, q(0.5), q(0.9), q(0.99), Double(steps) / Double(max(1, ms.count))))
+    func q(_ xs: [Double], _ f: Double) -> Double {
+        let s = xs.sorted()
+        return s.isEmpty ? 0 : s[min(s.count - 1, Int(Double(s.count) * f))]
+    }
+    let n = Double(max(1, wall.count))
+    print(String(format: "%d keystrokes · wall p50 %.1f / p90 %.1f / p99 %.1f ms · GPU p50 %.1f ms (mean %.1f) · %.1f steps · %.1f prompt tokens decoded per key",
+                 wall.count, q(wall, 0.5), q(wall, 0.9), q(wall, 0.99), q(gpu, 0.5), gpu.reduce(0, +) / n,
+                 Double(steps) / n, Double(promptDecoded) / n))
 
 default:
     print("""

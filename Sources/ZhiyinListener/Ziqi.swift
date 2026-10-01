@@ -407,9 +407,39 @@ public final class Ziqi {
         return out
     }
 
+    /// How `text` (BPE-tokenized) reads the keys: the cheapest channel cost
+    /// over all alignments that end exactly at the end of the keys, or nil.
+    private func alignment(_ tokens: [llama_token], _ reader: KeyReader, cache: inout [Int: [Option]]) -> Float? {
+        var states: [Int: (cost: Float, slips: Int)] = [0: (0, 0)]
+        for t in tokens {
+            var next: [Int: (cost: Float, slips: Int)] = [:]
+            for (p, st) in states {
+                for o in options(reader, at: p, cache: &cache) where o.token == t {
+                    let slips = st.slips + o.slips
+                    guard slips <= KeyReader.maxSlips else { continue }
+                    let c = st.cost + o.cost
+                    if next[o.end].map({ c < $0.cost }) ?? true { next[o.end] = (c, slips) }
+                }
+            }
+            if next.isEmpty { return nil }
+            states = next
+        }
+        return states[reader.count]?.cost
+    }
+
     /// Reads `keys` in the light of `context`. Returns nil when cancelled
     /// (checked between decode steps) or on a decode failure.
-    public func listen(context: String, keys: String, isCancelled: () -> Bool = { false }) -> Answer? {
+    ///
+    /// `rescue` are readings found elsewhere (琴谱's sentences, 默契's
+    /// memories). The beam can miss a name or an idiom the dictionary knows;
+    /// these are scored by both ears exactly like the beam's own results, in
+    /// one extra batched decode, and ranked together with them.
+    public func listen(
+        context: String,
+        keys: String,
+        rescue: [String] = [],
+        isCancelled: () -> Bool = { false }
+    ) -> Answer? {
         let started = DispatchTime.now()
         let keyBytes = Array(keys.utf8)
         guard !keyBytes.isEmpty,
@@ -541,7 +571,64 @@ public final class Ziqi {
             live = children
         }
 
+        // 琴谱补漏: force-score readings the beam did not reach.
         release()
+        var plans: [(text: String, tokens: [llama_token], cost: Float)] = []
+        var budget = 480
+        for text in rescue where finished[text] == nil && !text.isEmpty {
+            let tokens = tokenize(text)
+            guard !tokens.isEmpty, tokens.count <= budget,
+                  let cost = alignment(tokens, reader, cache: &optionCache) else { continue }
+            plans.append((text, tokens, cost))
+            budget -= tokens.count
+            if plans.count >= min(6, Int(maxSequences) - 1) { break }
+        }
+        if !plans.isEmpty, !isCancelled() {
+            // One batch: plan i occupies sequence i+1, positions after the prompt.
+            var rows: [[Int32]] = []
+            var batch: [(llama_token, Int32, llama_pos)] = []
+            for (i, plan) in plans.enumerated() {
+                let sequence = Int32(i + 1)
+                for ear in ears { llama_memory_seq_cp(ear.memory, 0, sequence, -1, -1) }
+                var r: [Int32] = []
+                for (j, t) in plan.tokens.enumerated() {
+                    r.append(Int32(batch.count))
+                    batch.append((t, sequence, llama_pos(j)))
+                }
+                rows.append(r)
+            }
+            var scores = [Float](repeating: 0, count: plans.count)
+            var ok = true
+            for (ear, weight, promptCount) in [(ting, tingWeight, tingTokens.count), (zhi, zhiWeight, zhiTokens.count)] {
+                guard let ear else { continue }
+                ear.batch.n_tokens = Int32(batch.count)
+                for (k, item) in batch.enumerated() {
+                    ear.batch.token[k] = item.0
+                    ear.batch.pos[k] = llama_pos(promptCount) + item.2
+                    ear.batch.n_seq_id[k] = 1
+                    ear.batch.seq_id[k]![0] = item.1
+                    ear.batch.logits[k] = 1
+                }
+                let t1 = DispatchTime.now().uptimeNanoseconds
+                guard llama_decode(ear.ctx, ear.batch) == 0 else { ok = false; break }
+                llama_synchronize(ear.ctx)
+                decodeNanos += DispatchTime.now().uptimeNanoseconds - t1
+                for (i, plan) in plans.enumerated() {
+                    for (j, t) in plan.tokens.enumerated() {
+                        // Token j is predicted by the prompt (j == 0) or by token j-1.
+                        let row: Int32 = j == 0 ? -1 : rows[i][j - 1]
+                        _ = ear.withRow(row) { logits, z in scores[i] += weight * (logits[Int(t)] - z) }
+                    }
+                }
+            }
+            if ok {
+                for (i, plan) in plans.enumerated() {
+                    let logp = scores[i] - plan.cost
+                    finished[plan.text] = Result(text: plan.text, logp: logp, tokens: plan.tokens.map { Int32($0) })
+                }
+            }
+            release()
+        }
         let results = finished.values.sorted { $0.logp > $1.logp }.prefix(config.results)
         var seenLeads = Set<String>()
         let rankedLeads = leads.sorted { $0.logp > $1.logp }.filter { seenLeads.insert($0.text + "\u{1}\($0.end)").inserted }

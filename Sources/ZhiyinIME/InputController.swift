@@ -243,7 +243,11 @@ final class ZhiyinInputController: IMKInputController {
         pendingShow = show
         DispatchQueue.main.asyncAfter(deadline: .now() + budget, execute: show)
         let keys = composition.keys
-        runtime.listener?.listen(context: context, keys: keys, generation: gen) { [weak self] answer, _ in
+        // 琴谱补漏: the dictionary's whole readings and 默契's memories go to
+        // 子期 too, scored by both ears alongside its own beam.
+        let rescue = Array(immediate.filter { $0.consumed >= keys.utf8.count && $0.voice != .literal }
+            .prefix(4).map(\.text))
+        runtime.listener?.listen(context: context, keys: keys, rescue: rescue, generation: gen) { [weak self] answer, _ in
             MainActor.assumeIsolated {
                 guard let self, self.generation == gen else { return }
                 show.cancel()

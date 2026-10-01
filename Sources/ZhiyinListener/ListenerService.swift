@@ -85,6 +85,7 @@ public final class ListenerService: @unchecked Sendable {
     public func listen(
         context: String,
         keys: String,
+        rescue: [String] = [],
         generation: UInt64,
         completion: @escaping @Sendable (Heard?, Ziqi.Answer?) -> Void
     ) {
@@ -96,7 +97,7 @@ public final class ListenerService: @unchecked Sendable {
                 return
             }
             if let config { z.config = config }
-            let answer = z.listen(context: context, keys: keys) { !isCurrent() }
+            let answer = z.listen(context: context, keys: keys, rescue: rescue) { !isCurrent() }
             scheduleRelease()
             let heard = answer.map { a in
                 Heard(
@@ -110,8 +111,8 @@ public final class ListenerService: @unchecked Sendable {
     }
 
     /// Synchronous variant for tools and tests.
-    public func listenNow(context: String, keys: String) -> Ziqi.Answer? {
-        queue.sync { ensureLoaded()?.listen(context: context, keys: keys) }
+    public func listenNow(context: String, keys: String, rescue: [String] = []) -> Ziqi.Answer? {
+        queue.sync { ensureLoaded()?.listen(context: context, keys: keys, rescue: rescue) }
     }
 
     private func scheduleRelease() {
