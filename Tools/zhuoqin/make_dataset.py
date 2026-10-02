@@ -49,6 +49,8 @@ LENGTH_WEIGHTS = {
 CLAUSE_SHARE = 0.45
 # Share of examples typed with a slip of the finger (走音), see pinyin.py.
 P_SLIP = 0.07
+# Extra share of examples whose context is dropped (cold starts).
+EMPTY_CONTEXT = 0.12
 
 
 def leipzig_units(path: Path, seed: int = 11):
@@ -188,7 +190,7 @@ def examples_for(args):
         if keys is None or len(keys) > 64:
             continue
         context = "".join(w for w, _ in words[:first])
-        if rng.random() < 0.12:
+        if rng.random() < EMPTY_CONTEXT:
             context = ""
         context = context[-CONTEXT_CHARS:]
         target = "".join(w for w, _ in span)
@@ -210,12 +212,16 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--sources", default="", help="comma-separated subset: chat,news,wiki,web")
     parser.add_argument("--skip", type=int, default=0, help="units to skip per source (scaled by share), for fresh text")
+    parser.add_argument("--empty-context", type=float, default=0.12, help="extra share of cold-start examples")
+    parser.add_argument("--chat-share", type=float, default=1.6)
     args = parser.parse_args()
+    global EMPTY_CONTEXT
+    EMPTY_CONTEXT = args.empty_context
 
     c = args.corpora
     sources = [
         # (name, iterator, share of --per-source)
-        ("chat", lccc_units(c / "lccc_base_train.jsonl.gz"), 1.6),
+        ("chat", lccc_units(c / "lccc_base_train.jsonl.gz"), args.chat_share),
         ("news", leipzig_units(c / "zho_news_2007-2009_1M-sentences.txt"), 1.0),
         ("wiki", leipzig_units(c / "zho_wikipedia_2018_300K" / "zho_wikipedia_2018_300K-sentences.txt"), 0.8),
         ("web", leipzig_units(c / "zho-cn_web_2015_30K" / "zho-cn_web_2015_30K-sentences.txt"), 0.3),

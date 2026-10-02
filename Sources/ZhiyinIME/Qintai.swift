@@ -63,6 +63,8 @@ private extension Color {
 }
 
 struct QintaiView: View {
+    /// Snapshot mode: never touch Runtime (no model, no Keychain).
+    var preview = false
     @State private var room: Room = .home
     @ObservedObject private var prefs = Preferences.shared
 
@@ -73,7 +75,7 @@ struct QintaiView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     switch room {
-                    case .home: HomeRoom()
+                    case .home: HomeRoom(preview: preview)
                     case .touch: TouchRoom()
                     case .listener: ListenerRoom()
                     case .rapport: RapportRoom()
@@ -85,8 +87,8 @@ struct QintaiView: View {
             }
         }
         .frame(minWidth: 760, minHeight: 540)
-        .onChange(of: prefs.attentive) { _, _ in Runtime.shared.applyPreferences() }
-        .onChange(of: prefs.restAfterMinutes) { _, _ in Runtime.shared.applyPreferences() }
+        .onChange(of: prefs.attentive) { _, _ in if !preview { Runtime.shared.applyPreferences() } }
+        .onChange(of: prefs.restAfterMinutes) { _, _ in if !preview { Runtime.shared.applyPreferences() } }
     }
 
     private var sidebar: some View {
@@ -191,7 +193,8 @@ private struct RoomTitle: View {
 }
 
 private struct HomeRoom: View {
-    @State private var status = Runtime.shared.listenerStatus
+    var preview = false
+    @State private var status = ""
     var body: some View {
         Landscape()
             .frame(height: 170)
@@ -220,7 +223,7 @@ private struct HomeRoom: View {
             }
             .padding(.top, 6)
         }
-        .onAppear { status = Runtime.shared.listenerStatus }
+        .onAppear { status = preview ? "子期在听" : Runtime.shared.listenerStatus }
     }
 }
 
@@ -376,5 +379,25 @@ private struct PanelPreview: NSViewRepresentable {
         let fit = view.fittingSize
         view.frame = NSRect(x: 8, y: 8, width: fit.width, height: fit.height)
         view.needsDisplay = true
+    }
+}
+
+
+/// Renders 琴台 into a PNG without putting a window on screen.
+@MainActor
+enum QintaiSnapshot {
+    static func render(to url: URL) -> Bool {
+        let size = NSSize(width: 760, height: 540)
+        let host = NSHostingView(rootView: QintaiView(preview: true).environment(\.colorScheme, .light))
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.contentView = host
+        host.frame = NSRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return false }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return false }
+        return (try? png.write(to: url)) != nil
     }
 }

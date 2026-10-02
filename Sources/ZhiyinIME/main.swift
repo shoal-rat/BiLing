@@ -43,6 +43,11 @@ if let i = arguments.firstIndex(of: "--render-panel"), i + 1 < arguments.count {
     }
     exit(ok ? 0 : 1)
 }
+if let i = arguments.firstIndex(of: "--render-qintai"), i + 1 < arguments.count {
+    // Draw 琴台 off screen (for the README); no window is shown.
+    let ok = MainActor.assumeIsolated { QintaiSnapshot.render(to: URL(fileURLWithPath: arguments[i + 1])) }
+    exit(ok ? 0 : 1)
+}
 if arguments.contains("--smoke-test") {
     let ok = MainActor.assumeIsolated { () -> Bool in
         let runtime = Runtime.shared
