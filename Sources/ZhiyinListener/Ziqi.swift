@@ -50,6 +50,11 @@ public final class Ziqi {
         /// …and of a character read through a slip (走音: neighbour key,
         /// swapped, missing or doubled letter).
         public var slipCost: Float = 5.0
+        /// Normalise the two ears' product once over the whole vocabulary
+        /// (log of p听音·p知意^w, renormalised) instead of adding the two
+        /// separately normalised log-probabilities. Needed for a 听音 trained
+        /// on the product (train_poe.py): on its own it is not calibrated.
+        public var renormalize = false
         /// Cost of a Latin token (keeps pinyin from turning into English)…
         public var latinCost: Float = 3.0
         /// …and extra for a capitalised word (Haroen): a name the keys happen
@@ -266,6 +271,15 @@ public final class Ziqi {
             return maximum + log(sum)
         }
 
+        /// A hypothesis's raw logit row, valid until the next decode
+        /// (row < 0: the prompt's own next-token row).
+        func rowPointer(_ row: Int32) -> UnsafePointer<Float>? {
+            if row < 0 {
+                return cachedLogits.withUnsafeBufferPointer { UnsafePointer($0.baseAddress) }
+            }
+            return llama_get_logits_ith(ctx, row).map { UnsafePointer($0) }
+        }
+
         /// Calls `body` with a hypothesis's logit row (row < 0: the prompt's
         /// own next-token row) and its log-normaliser.
         func withRow(_ row: Int32, _ body: (UnsafePointer<Float>, Float) -> Void) -> Bool {
@@ -457,6 +471,32 @@ public final class Ziqi {
         return text
     }
 
+    private var productScratch: [Float] = []
+
+    /// (wt·lseT + wz·lseZ) − lse(wt·t + wz·z): what turns the sum of the two
+    /// separately normalised log-probabilities into the renormalised product.
+    private func productCorrection(_ t: UnsafePointer<Float>, _ z: UnsafePointer<Float>, wt: Float, wz: Float,
+                                   lseT: Float, lseZ: Float) -> Float {
+        let n = vocabularySize
+        if productScratch.count != n { productScratch = [Float](repeating: 0, count: n) }
+        var a = wt
+        var b = wz
+        var maximum: Float = 0
+        var sum: Float = 0
+        productScratch.withUnsafeMutableBufferPointer { buf in
+            let out = buf.baseAddress!
+            vDSP_vsmul(t, 1, &a, out, 1, vDSP_Length(n))
+            vDSP_vsma(z, 1, &b, out, 1, out, 1, vDSP_Length(n))
+            vDSP_maxv(out, 1, &maximum, vDSP_Length(n))
+            var negative = -maximum
+            vDSP_vsadd(out, 1, &negative, out, 1, vDSP_Length(n))
+            var count = Int32(n)
+            vvexpf(out, out, &count)
+            vDSP_sve(out, 1, &sum, vDSP_Length(n))
+        }
+        return wt * lseT + wz * lseZ - (maximum + log(sum))
+    }
+
     // MARK: - Search
 
     struct Option {
@@ -609,17 +649,26 @@ public final class Ziqi {
                     let opts = options(reader, at: h.position, cache: &optionCache)
                     guard !opts.isEmpty else { continue }
                     var combined = [Float](repeating: 0, count: opts.count)
+                    var lseT: Float = 0
+                    var lseZ: Float = 0
                     if let ting {
                         let ok = ting.withRow(h.row) { row, z in
+                            lseT = z
                             for (i, o) in opts.enumerated() { combined[i] += tingWeight * (row[Int(o.token)] - z) }
                         }
                         guard ok else { release(); return nil }
                     }
                     if let zhi {
                         let ok = zhi.withRow(h.row) { row, z in
+                            lseZ = z
                             for (i, o) in opts.enumerated() { combined[i] += zhiWeight * (row[Int(o.token)] - z) }
                         }
                         guard ok else { release(); return nil }
+                    }
+                    if config.renormalize, let ting, let zhi,
+                       let t = ting.rowPointer(h.row), let z = zhi.rowPointer(h.row) {
+                        let c = productCorrection(t, z, wt: tingWeight, wz: zhiWeight, lseT: lseT, lseZ: lseZ)
+                        for i in combined.indices { combined[i] += c }
                     }
                     for (i, o) in opts.enumerated() where h.slips + o.slips <= maxSlips {
                         let score = h.logp + combined[i] - o.cost
@@ -632,8 +681,14 @@ public final class Ziqi {
             for r in riders.indices where riders[r].emitted < riders[r].tokens.count {
                 let t = riders[r].tokens[riders[r].emitted]
                 var gain: Float = 0
-                if let ting { _ = ting.withRow(riders[r].row) { row, z in gain += tingWeight * (row[Int(t)] - z) } }
-                if let zhi { _ = zhi.withRow(riders[r].row) { row, z in gain += zhiWeight * (row[Int(t)] - z) } }
+                var lseT: Float = 0
+                var lseZ: Float = 0
+                if let ting { _ = ting.withRow(riders[r].row) { row, z in lseT = z; gain += tingWeight * (row[Int(t)] - z) } }
+                if let zhi { _ = zhi.withRow(riders[r].row) { row, z in lseZ = z; gain += zhiWeight * (row[Int(t)] - z) } }
+                if config.renormalize, let ting, let zhi,
+                   let tp = ting.rowPointer(riders[r].row), let zp = zhi.rowPointer(riders[r].row) {
+                    gain += productCorrection(tp, zp, wt: tingWeight, wz: zhiWeight, lseT: lseT, lseZ: lseZ)
+                }
                 riders[r].logp += gain - riders[r].costs[riders[r].emitted]
                 riders[r].emitted += 1
                 if riders[r].emitted == riders[r].tokens.count {

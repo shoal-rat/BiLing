@@ -40,6 +40,7 @@ let zhiCold = option("--zhi-cold").flatMap(Float.init)
 let properCost = option("--proper-cost").flatMap(Float.init)
 let coldPrefix = option("--cold-prefix")
 let zhiModelPath = option("--zhi-model")
+let renormalize = flag("--renormalize")
 let tingWeight = option("--ting").flatMap(Float.init)
 let perKey = option("--per-key").flatMap(Float.init)
 let abbrCost = option("--abbr-cost").flatMap(Float.init)
@@ -64,6 +65,7 @@ func loadZiqi() -> Ziqi {
     if let zhiWeight { config.zhiWeight = zhiWeight; config.zhiWeightCold = zhiWeight }
     if let zhiCold { config.zhiWeightCold = zhiCold }
     if let properCost { config.properNounCost = properCost }
+    if renormalize { config.renormalize = true }
     if let coldPrefix { config.coldPrefix = coldPrefix.replacingOccurrences(of: "\\n", with: "\n") }
     if let tingWeight { config.tingWeight = tingWeight }
     if let abbrCost { config.abbreviationCost = abbrCost }
