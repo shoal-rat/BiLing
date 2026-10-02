@@ -312,17 +312,11 @@ public final class Ziqi {
         var adapter: OpaquePointer?
         var fused: OpaquePointer?
         if let adapterPath, FileManager.default.fileExists(atPath: adapterPath) {
-            let size = (try? FileManager.default.attributesOfItem(atPath: adapterPath)[.size] as? Int) ?? 0
-            if size > 200_000_000 {
-                // A whole model, not an adapter: 听音 fused.
+            // An adapter, or else a whole (fused) 听音 model.
+            adapter = llama_adapter_lora_init(model, adapterPath)
+            if adapter == nil {
                 fused = llama_model_load_from_file(adapterPath, modelParams)
                 if fused == nil {
-                    llama_model_free(model)
-                    throw LoadError.adapter(adapterPath)
-                }
-            } else {
-                adapter = llama_adapter_lora_init(model, adapterPath)
-                if adapter == nil {
                     llama_model_free(model)
                     throw LoadError.adapter(adapterPath)
                 }
