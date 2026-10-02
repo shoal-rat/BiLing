@@ -198,6 +198,9 @@ final class ZhiyinInputController: IMKInputController {
         if let text = client.attributedSubstring(from: range)?.string {
             documentContext = text
         }
+        if Preferences.shared.diagnostics {
+            Self.log.notice("context selection=\(selection.location, privacy: .public) read=\(self.documentContext, privacy: .private(mask: .hash)) length=\(self.documentContext.count, privacy: .public)")
+        }
     }
 
     private var context: String {
@@ -267,6 +270,9 @@ final class ZhiyinInputController: IMKInputController {
                 // Once the user has moved along the strings, a late answer
                 // must not move the notes under their finger.
                 if self.navigated { return }
+                if Preferences.shared.diagnostics {
+                    Self.log.notice("heard keys=\(keys, privacy: .public) top=\(answer.readings.first?.text ?? "-", privacy: .public) contextLength=\(self.context.count, privacy: .public)")
+                }
                 self.present(self.compose(heard: answer), heard: true, listening: false, client: sender)
             }
         }

@@ -26,6 +26,10 @@ final class Preferences: ObservableObject, @unchecked Sendable {
     // 默契 · rapport
     @Published var learning: Bool { didSet { defaults.set(learning, forKey: "learning") } }
 
+    /// Hidden: log keys and decisions to the unified log (never by default;
+    /// `defaults write com.zhiyin.inputmethod.Zhiyin diagnostics -bool true`).
+    var diagnostics: Bool { defaults.bool(forKey: "diagnostics") }
+
     // 山水 · landscape
     @Published var scheme: String { didSet { defaults.set(scheme, forKey: "scheme") } }
     @Published var typeface: String { didSet { defaults.set(typeface, forKey: "typeface") } }
