@@ -130,6 +130,8 @@ public final class Ziqi {
     /// place of an adapter: no per-step LoRA matmuls, at the price of a
     /// second set of weights in memory.
     private var tingModel: OpaquePointer?
+    /// A different (larger) base for 知意; it must share Qwen3's tokenizer.
+    private var zhiModel: OpaquePointer?
     private let vocab: OpaquePointer
     private let trie: CharTrie
     private let vocabularySize: Int
@@ -277,7 +279,8 @@ public final class Ziqi {
         }
     }
 
-    public init(modelPath: String, adapterPath: String?, vocabularyPath: String, config: Config? = nil) throws {
+    public init(modelPath: String, adapterPath: String?, vocabularyPath: String, config: Config? = nil,
+                zhiModelPath: String? = nil) throws {
         trie = try CharTrie(path: vocabularyPath)
         guard trie.kind == .tokens else { throw LoadError.vocabulary("not a token trie") }
 
@@ -333,7 +336,14 @@ public final class Ziqi {
             p.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO
             return llama_init_from_model(model, p)
         }
-        guard let zhiContext = makeContext(model) else {
+        if let zhiModelPath {
+            guard let m = llama_model_load_from_file(zhiModelPath, modelParams) else {
+                llama_model_free(model)
+                throw LoadError.model(zhiModelPath)
+            }
+            zhiModel = m
+        }
+        guard let zhiContext = makeContext(zhiModel ?? model) else {
             llama_model_free(model)
             throw LoadError.context
         }
@@ -372,6 +382,7 @@ public final class Ziqi {
         ting = nil
         zhi = nil
         if let tingModel { llama_model_free(tingModel) }
+        if let zhiModel { llama_model_free(zhiModel) }
         llama_model_free(model)
     }
 

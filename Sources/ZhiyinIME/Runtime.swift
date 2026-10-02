@@ -76,9 +76,10 @@ final class Runtime {
         let prefs = Preferences.shared
         guard let listener else { return }
         var config = Ziqi.Config()
-        // 细听: both ears, a wide beam. 轻听: both ears, a narrow beam.
-        config.beam = prefs.attentive ? 10 : 5
-        config.results = prefs.attentive ? 8 : 5
+        // 细听: beam 4 (as accurate as 10 once 琴谱补漏 rides along; see
+        // Docs/results/tuning-r2.md). 轻听: beam 2.
+        config.beam = prefs.attentive ? 4 : 2
+        config.results = prefs.attentive ? 8 : 6
         listener.config = FileManager.default.fileExists(atPath: listener.adapterPath ?? "") ? config : nil
         listener.idleRelease = TimeInterval(max(1, prefs.restAfterMinutes)) * 60
     }

@@ -269,8 +269,8 @@ private struct ListenerRoom: View {
         Form {
             Toggle("请子期来听（关闭则琴谱独奏）", isOn: $prefs.listenerEnabled)
             Picker("听法", selection: $prefs.attentive) {
-                Text("细听 · 更准").tag(true)
-                Text("轻听 · 更省电").tag(false)
+                Text("细听 · 束宽 4").tag(true)
+                Text("轻听 · 束宽 2，更省电").tag(false)
             }
             .pickerStyle(.segmented)
             Toggle("读光标前的文字作为前文", isOn: $prefs.readContext)

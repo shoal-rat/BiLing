@@ -39,6 +39,7 @@ let zhiWeight = option("--zhi").flatMap(Float.init)
 let zhiCold = option("--zhi-cold").flatMap(Float.init)
 let properCost = option("--proper-cost").flatMap(Float.init)
 let coldPrefix = option("--cold-prefix")
+let zhiModelPath = option("--zhi-model")
 let tingWeight = option("--ting").flatMap(Float.init)
 let perKey = option("--per-key").flatMap(Float.init)
 let abbrCost = option("--abbr-cost").flatMap(Float.init)
@@ -70,7 +71,8 @@ func loadZiqi() -> Ziqi {
     _ = reward
     do {
         let started = Date()
-        let z = try Ziqi(modelPath: modelPath, adapterPath: hasAdapter ? adapterPath : nil, vocabularyPath: vocabPath, config: config)
+        let z = try Ziqi(modelPath: modelPath, adapterPath: hasAdapter ? adapterPath : nil, vocabularyPath: vocabPath,
+                         config: config, zhiModelPath: zhiModelPath)
         FileHandle.standardError.write(Data("子期: \(z.description), loaded in \(Int(Date().timeIntervalSince(started) * 1000)) ms\n".utf8))
         return z
     } catch {
